@@ -1,0 +1,74 @@
+### Login as Alice
+POST http://localhost:8000/auth/login
+Content-Type: application/json
+
+{
+  "email": "alice@example.com",
+  "password": "password123"
+}
+
+### Login as Bob
+POST http://localhost:8000/auth/login
+Content-Type: application/json
+
+{
+  "email": "bob@example.com",
+  "password": "password123"
+}
+
+### Read Acme document
+GET http://localhost:8000/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+Authorization: Bearer {{token}}
+
+### Edit Acme document
+PATCH http://localhost:8000/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "Updated Acme Plan"
+}
+
+### Share Acme document
+POST http://localhost:8000/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/shares
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "subject_type": "user",
+  "subject_id": "00000000-0000-0000-0000-000000000002",
+  "role": "viewer"
+}
+
+### Revoke Acme document share
+DELETE http://localhost:8000/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/shares
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "subject_type": "user",
+  "subject_id": "00000000-0000-0000-0000-000000000002",
+  "role": "viewer"
+}
+
+### Create delegated link
+POST http://localhost:8000/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/shares/delegated-link
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "expires_in_seconds": 300
+}
+
+### Read delegated document
+GET http://localhost:8000/delegated/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+x-delegation-token: {{delegation_token}}
+
+### Inspect document relationships
+GET http://localhost:8000/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/relationships
+Authorization: Bearer {{token}}
+
+### Audit logs
+GET http://localhost:8000/audit
+Authorization: Bearer {{token}}
+

@@ -1,0 +1,99 @@
+{
+  "schema_version": "1.1",
+  "type_definitions": [
+    {
+      "type": "user",
+      "relations": {},
+      "metadata": null
+    },
+    {
+      "type": "tenant",
+      "relations": {
+        "member": { "this": {} },
+        "admin": { "this": {} }
+      },
+      "metadata": {
+        "relations": {
+          "member": { "directly_related_user_types": [{ "type": "user" }] },
+          "admin": { "directly_related_user_types": [{ "type": "user" }] }
+        }
+      }
+    },
+    {
+      "type": "group",
+      "relations": {
+        "parent": { "this": {} },
+        "member": { "this": {} }
+      },
+      "metadata": {
+        "relations": {
+          "parent": { "directly_related_user_types": [{ "type": "tenant" }] },
+          "member": { "directly_related_user_types": [{ "type": "user" }] }
+        }
+      }
+    },
+    {
+      "type": "document",
+      "relations": {
+        "parent": { "this": {} },
+        "owner": { "this": {} },
+        "editor": { "this": {} },
+        "commenter": { "this": {} },
+        "viewer": { "this": {} },
+        "can_share": { "computedUserset": { "relation": "owner" } },
+        "can_edit": {
+          "union": {
+            "child": [
+              { "computedUserset": { "relation": "owner" } },
+              { "computedUserset": { "relation": "editor" } }
+            ]
+          }
+        },
+        "can_comment": {
+          "union": {
+            "child": [
+              { "computedUserset": { "relation": "owner" } },
+              { "computedUserset": { "relation": "editor" } },
+              { "computedUserset": { "relation": "commenter" } }
+            ]
+          }
+        },
+        "can_read": {
+          "union": {
+            "child": [
+              { "computedUserset": { "relation": "owner" } },
+              { "computedUserset": { "relation": "editor" } },
+              { "computedUserset": { "relation": "commenter" } },
+              { "computedUserset": { "relation": "viewer" } }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "parent": { "directly_related_user_types": [{ "type": "tenant" }] },
+          "owner": { "directly_related_user_types": [{ "type": "user" }] },
+          "editor": {
+            "directly_related_user_types": [
+              { "type": "user" },
+              { "type": "group", "relation": "member" }
+            ]
+          },
+          "commenter": {
+            "directly_related_user_types": [
+              { "type": "user" },
+              { "type": "group", "relation": "member" }
+            ]
+          },
+          "viewer": {
+            "directly_related_user_types": [
+              { "type": "user" },
+              { "type": "group", "relation": "member" }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
+

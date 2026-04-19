@@ -1,0 +1,1178 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SecureShare Authorization Reference API",
+    "summary": "Multi-tenant document sharing with JWT, OpenFGA, Macaroons, PostgreSQL, and audit logging.",
+    "description": "\nSecureShare is a production-style reference API for secure multi-tenant document sharing.\n\nCore security properties:\n\n* JWTs carry identity only, never document permissions.\n* FastAPI routers and dependencies act as policy enforcement points.\n* OpenFGA is the relationship-based policy decision point for document access.\n* Macaroon-style delegated links provide temporary, attenuated read access.\n* Every allow and deny authorization decision is written to the audit log.\n\nDemo users all use password `password123`:\n\n* `alice@example.com` owns the Acme document.\n* `bob@example.com` can view the Acme document.\n* `eve@example.net` owns the Globex document in another tenant.\n",
+    "contact": {
+      "name": "SecureShare maintainers"
+    },
+    "license": {
+      "name": "Reference implementation"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Liveness health check",
+        "description": "Returns a lightweight liveness response. This endpoint does not check downstream dependencies.",
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Readiness health check",
+        "description": "Checks whether the API can reach PostgreSQL and OpenFGA. Use this for smoke tests and deployment readiness.",
+        "operationId": "readyz_readyz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessStatus"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "One or more required dependencies are unavailable."
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Issue a development JWT",
+        "description": "Authenticates a local demo user and returns a JWT containing identity claims only. The token does not contain document permissions, roles, groups, or authorization state.",
+        "operationId": "login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "JWT issued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/documents": {
+      "post": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Create a document",
+        "description": "Creates a document in the caller's tenant, stores application data in PostgreSQL, and writes OpenFGA owner and tenant-parent relationships. Requires authentication.",
+        "operationId": "create_document_documents_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Document created and owner relationship written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/documents/{document_id}": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Read a document",
+        "description": "Reads a document only after the shared authorization service verifies tenant boundary and OpenFGA returns `can_read` for the caller.",
+        "operationId": "read_document_documents__document_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          },
+          "403": {
+            "description": "OpenFGA denied access or the document is cross-tenant."
+          },
+          "404": {
+            "description": "Document not found after authorization succeeds."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Edit a document",
+        "description": "Updates a document only after the shared authorization service verifies tenant boundary and OpenFGA returns `can_edit` for the caller.",
+        "operationId": "update_document_documents__document_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Document updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          },
+          "403": {
+            "description": "OpenFGA denied edit access or the document is cross-tenant."
+          },
+          "404": {
+            "description": "Document not found after authorization succeeds."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/documents/{document_id}/relationships": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Inspect document relationships",
+        "description": "Returns OpenFGA relationships for a document. This demo admin endpoint requires `can_share`, which is currently granted to document owners.",
+        "operationId": "inspect_relationships_documents__document_id__relationships_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document relationships returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelationshipInspection"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          },
+          "403": {
+            "description": "Caller is not allowed to inspect relationships."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/documents/{document_id}/shares": {
+      "post": {
+        "tags": [
+          "shares"
+        ],
+        "summary": "Grant document access",
+        "description": "Grants `owner`, `editor`, `commenter`, or `viewer` on a document to a user or group. The caller must pass the shared authorization service check for `can_share`.",
+        "operationId": "share_document_documents__document_id__shares_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Relationship granted in OpenFGA."
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          },
+          "403": {
+            "description": "Caller cannot share this document."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "shares"
+        ],
+        "summary": "Revoke document access",
+        "description": "Revokes a document relationship from a user or group in OpenFGA. Revocation takes effect on the next request without requiring JWT refresh.",
+        "operationId": "revoke_document_share_documents__document_id__shares_delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Relationship revoked in OpenFGA."
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          },
+          "403": {
+            "description": "Caller cannot share this document."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/documents/{document_id}/shares/delegated-link": {
+      "post": {
+        "tags": [
+          "shares"
+        ],
+        "summary": "Create a delegated read link",
+        "description": "Issues a Macaroon-style delegated read token with caveats for action, document, tenant, issuer, expiry, and optional IP address. The issuer must currently have `can_read`.",
+        "operationId": "create_delegated_link_documents__document_id__shares_delegated_link_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DelegatedLinkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Delegated token issued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DelegatedLinkResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          },
+          "403": {
+            "description": "Issuer cannot read this document."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/delegated/documents/{document_id}": {
+      "get": {
+        "tags": [
+          "delegated"
+        ],
+        "summary": "Read a document using a delegated token",
+        "description": "Reads a document with an `x-delegation-token` Macaroon. The endpoint validates caveats and performs a live OpenFGA `can_read` check for the issuing user before returning data.",
+        "operationId": "read_delegated_document_delegated_documents__document_id__get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "x-delegation-token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Delegation-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document returned through delegated access.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Delegated token is expired, malformed, caveat-violating, or issuer access was revoked."
+          },
+          "404": {
+            "description": "Document not found."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/audit": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "List tenant audit logs",
+        "description": "Returns the latest authorization decisions for the caller's tenant. Rows include request ID, user, tenant, resource, action, decision, reason, and source.",
+        "operationId": "list_audit_logs_audit_get",
+        "responses": {
+          "200": {
+            "description": "Recent tenant-scoped authorization decisions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AuditLogRead"
+                  },
+                  "type": "array",
+                  "title": "Response List Audit Logs Audit Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AuditLogRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "resource": {
+            "type": "string",
+            "title": "Resource"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "decision": {
+            "type": "string",
+            "title": "Decision"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "timestamp",
+          "request_id",
+          "user_id",
+          "tenant_id",
+          "resource",
+          "action",
+          "decision",
+          "reason",
+          "source"
+        ],
+        "title": "AuditLogRead"
+      },
+      "ComponentStatus": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "ComponentStatus"
+      },
+      "DelegatedLinkRequest": {
+        "properties": {
+          "expires_in_seconds": {
+            "type": "integer",
+            "maximum": 604800.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Expires In Seconds"
+          },
+          "ip_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Address"
+          }
+        },
+        "type": "object",
+        "required": [
+          "expires_in_seconds"
+        ],
+        "title": "DelegatedLinkRequest",
+        "examples": [
+          {
+            "expires_in_seconds": 300,
+            "ip_address": "203.0.113.10"
+          },
+          {
+            "expires_in_seconds": 900
+          }
+        ]
+      },
+      "DelegatedLinkResponse": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "caveats": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Caveats"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "caveats"
+        ],
+        "title": "DelegatedLinkResponse",
+        "examples": [
+          {
+            "caveats": [
+              "action = can_read",
+              "document_id = aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "expires_before = 1893456000"
+            ],
+            "token": "MDAxZGxvY2F0aW9u..."
+          }
+        ]
+      },
+      "DocumentCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Body"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "body"
+        ],
+        "title": "DocumentCreate",
+        "examples": [
+          {
+            "body": "Confidential launch notes for the Acme tenant.",
+            "title": "Quarterly Launch Plan"
+          }
+        ]
+      },
+      "DocumentRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "owner_id": {
+            "type": "string",
+            "title": "Owner Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "owner_id",
+          "title",
+          "body",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "DocumentRead"
+      },
+      "DocumentUpdate": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 240,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "body": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body"
+          }
+        },
+        "type": "object",
+        "title": "DocumentUpdate",
+        "examples": [
+          {
+            "body": "Updated document body.",
+            "title": "Updated Quarterly Launch Plan"
+          }
+        ]
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthStatus": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "service",
+          "version"
+        ],
+        "title": "HealthStatus",
+        "examples": [
+          {
+            "service": "SecureShare",
+            "status": "ok",
+            "version": "0.1.0"
+          }
+        ]
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "examples": [
+          {
+            "email": "alice@example.com",
+            "password": "password123"
+          }
+        ]
+      },
+      "ReadinessStatus": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "components": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ComponentStatus"
+            },
+            "type": "object",
+            "title": "Components"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "service",
+          "version",
+          "components"
+        ],
+        "title": "ReadinessStatus",
+        "examples": [
+          {
+            "components": {
+              "openfga": {
+                "detail": "health endpoint succeeded",
+                "status": "ok"
+              },
+              "postgres": {
+                "detail": "select 1 succeeded",
+                "status": "ok"
+              }
+            },
+            "service": "SecureShare",
+            "status": "ok",
+            "version": "0.1.0"
+          }
+        ]
+      },
+      "RelationshipInspection": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "relationships": {
+            "items": {
+              "$ref": "#/components/schemas/RelationshipRead"
+            },
+            "type": "array",
+            "title": "Relationships"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "relationships"
+        ],
+        "title": "RelationshipInspection"
+      },
+      "RelationshipRead": {
+        "properties": {
+          "user": {
+            "type": "string",
+            "title": "User"
+          },
+          "relation": {
+            "type": "string",
+            "title": "Relation"
+          },
+          "object": {
+            "type": "string",
+            "title": "Object"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user",
+          "relation",
+          "object"
+        ],
+        "title": "RelationshipRead"
+      },
+      "ShareRequest": {
+        "properties": {
+          "subject_type": {
+            "type": "string",
+            "pattern": "^(user|group)$",
+            "title": "Subject Type"
+          },
+          "subject_id": {
+            "type": "string",
+            "title": "Subject Id"
+          },
+          "role": {
+            "type": "string",
+            "pattern": "^(owner|editor|commenter|viewer)$",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject_type",
+          "subject_id",
+          "role"
+        ],
+        "title": "ShareRequest",
+        "examples": [
+          {
+            "role": "viewer",
+            "subject_id": "00000000-0000-0000-0000-000000000002",
+            "subject_type": "user"
+          },
+          {
+            "role": "commenter",
+            "subject_id": "33333333-3333-3333-3333-333333333333",
+            "subject_type": "group"
+          }
+        ]
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "expires_in"
+        ],
+        "title": "TokenResponse",
+        "examples": [
+          {
+            "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+            "expires_in": 3600,
+            "token_type": "bearer"
+          }
+        ]
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "health",
+      "description": "Liveness and readiness endpoints for smoke tests, local checks, and deployment probes."
+    },
+    {
+      "name": "auth",
+      "description": "Development-only local JWT issuer. Tokens contain identity claims only."
+    },
+    {
+      "name": "documents",
+      "description": "Document create, read, edit, and relationship inspection endpoints protected by OpenFGA checks."
+    },
+    {
+      "name": "shares",
+      "description": "Relationship grant, revoke, and delegated-link issuance endpoints. Sharing requires `can_share`."
+    },
+    {
+      "name": "delegated",
+      "description": "Macaroon-style delegated read endpoint. Caveats and live issuer authorization are enforced."
+    },
+    {
+      "name": "audit",
+      "description": "Tenant-scoped authorization decision logs."
+    }
+  ]
+}

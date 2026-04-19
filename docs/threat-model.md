@@ -1,0 +1,77 @@
+# SecureShare Threat Model
+
+## Assets
+
+- Tenant-isolated documents
+- User identity claims
+- OpenFGA relationship tuples
+- Delegated Macaroon tokens
+- Authorization audit logs
+
+## Trust Boundaries
+
+- Browser or API client to FastAPI
+- FastAPI to PostgreSQL
+- FastAPI to OpenFGA
+- Macaroon token holder to delegated read endpoint
+
+## Key Threats And Controls
+
+### Broken Access Control
+
+Risk: a user changes an object ID and reads another tenant's document.
+
+Controls:
+
+- All protected document routes call `AuthorizationService`.
+- `AuthorizationService` checks tenant ownership before asking OpenFGA.
+- Tests cover direct object reference tampering and cross-tenant denial.
+
+### Stale JWT Authorization
+
+Risk: a JWT minted before revocation continues to grant access.
+
+Controls:
+
+- JWT contains identity only.
+- OpenFGA is checked on every protected resource request.
+- Tests revoke Bob's viewer relationship and reuse his existing JWT.
+
+### Weak Or Malformed JWT
+
+Risk: unsigned, weak-algorithm, malformed, or wrong-issuer tokens are accepted.
+
+Controls:
+
+- JWT decoding pins `HS256`.
+- Required claims are enforced.
+- Issuer and audience are verified.
+- Tests cover malformed and `alg=none` tokens.
+
+### Delegated Token Abuse
+
+Risk: temporary share links are replayed, used after expiry, used from the wrong IP, or outlive issuer access.
+
+Controls:
+
+- Macaroon caveats bind action, document, tenant, issuer, expiry, and optional IP.
+- Delegated endpoint supports read only.
+- Delegated reads perform live OpenFGA checks for the issuing user.
+- Tests cover expiry, wrong IP, and revocation.
+
+### Audit Gaps
+
+Risk: denied requests or delegated access cannot be reconstructed.
+
+Controls:
+
+- `AuthorizationService` records every allow and deny.
+- Audit rows include request ID, user, tenant, resource, action, decision, reason, and decision source.
+
+## Residual Risks
+
+- The local JWT issuer is not suitable for production identity federation.
+- Demo OpenFGA uses an in-memory datastore unless reconfigured.
+- Admin relationship inspection should be narrowed to tenant admins for a real deployment.
+- Audit retention, tamper resistance, and export to a SIEM are left as production extensions.
+

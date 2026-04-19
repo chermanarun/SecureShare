@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write
+
+env:
+  PYTHON_VERSION: "3.12"
+  ARTIFACT_DIR: dist/ci
+
+jobs:
+  test:
+    name: Test And Package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Compile Python
+        run: uv run python -m compileall -q apps/api/app scripts
+
+      - name: Validate Docker Compose
+        run: docker compose config --quiet
+
+      - name: Run tests
+        run: |
+          mkdir -p "${ARTIFACT_DIR}"
+          uv run pytest --junitxml="${ARTIFACT_DIR}/pytest.xml"
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: ${{ env.ARTIFACT_DIR }}/secureshare-sbom.cdx.json
+          upload-artifact: false
+
+      - name: Run source vulnerability scan
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          format: sarif
+          output: ${{ env.ARTIFACT_DIR }}/trivy-source.sarif
+          exit-code: "0"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+
+      - name: Upload source scan to code scanning
+        if: always() && github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: ${{ env.ARTIFACT_DIR }}/trivy-source.sarif
+
+      - name: Enforce source vulnerability policy
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: true
+
+      - name: Build API image
+        run: docker build -t secureshare-api:${GITHUB_SHA} -f apps/api/Dockerfile .
+
+      - name: Run image vulnerability scan
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: secureshare-api:${{ github.sha }}
+          vuln-type: os,library
+          format: sarif
+          output: ${{ env.ARTIFACT_DIR }}/trivy-image.sarif
+          exit-code: "0"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: true
+
+      - name: Upload image scan to code scanning
+        if: always() && github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: ${{ env.ARTIFACT_DIR }}/trivy-image.sarif
+
+      - name: Enforce image vulnerability policy
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: secureshare-api:${{ github.sha }}
+          vuln-type: os,library
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: true
+
+      - name: Build source artifact
+        run: |
+          mkdir -p "${ARTIFACT_DIR}"
+          git archive --format=tar.gz --output="${ARTIFACT_DIR}/secureshare-source-${GITHUB_SHA}.tar.gz" HEAD
+          shasum -a 256 "${ARTIFACT_DIR}"/* > "${ARTIFACT_DIR}/SHA256SUMS"
+
+      - name: Install Cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign CI artifacts
+        if: github.event_name != 'pull_request'
+        run: |
+          for artifact in \
+            "${ARTIFACT_DIR}/secureshare-source-${GITHUB_SHA}.tar.gz" \
+            "${ARTIFACT_DIR}/secureshare-sbom.cdx.json" \
+            "${ARTIFACT_DIR}/trivy-source.sarif" \
+            "${ARTIFACT_DIR}/trivy-image.sarif" \
+            "${ARTIFACT_DIR}/SHA256SUMS"; do
+            cosign sign-blob --yes \
+              --output-signature "${artifact}.sig" \
+              --output-certificate "${artifact}.pem" \
+              "${artifact}"
+          done
+
+      - name: Upload CI artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secureshare-ci-${{ github.sha }}
+          path: dist/ci/
+          if-no-files-found: error
+          retention-days: 30

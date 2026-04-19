@@ -1,0 +1,67 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":semanticCommitTypeAll(chore)"
+  ],
+  "timezone": "Asia/Kolkata",
+  "schedule": ["before 10am on monday"],
+  "labels": ["dependencies"],
+  "prConcurrentLimit": 5,
+  "rangeStrategy": "bump",
+  "minimumReleaseAge": "3 days",
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "internalChecksFilter": "strict",
+  "packageRules": [
+    {
+      "description": "Hold major updates longer before opening PRs",
+      "matchUpdateTypes": ["major"],
+      "minimumReleaseAge": "14 days"
+    },
+    {
+      "description": "Hold minor updates for a week before opening PRs",
+      "matchUpdateTypes": ["minor"],
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Hold patch updates briefly to avoid freshly published bad releases",
+      "matchUpdateTypes": ["patch"],
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Hold Docker image updates for at least a week",
+      "matchDatasources": ["docker"],
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Use a shorter cooldown for GitHub Actions patches",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["patch"],
+      "minimumReleaseAge": "2 days"
+    },
+    {
+      "description": "Group FastAPI runtime stack",
+      "matchPackageNames": ["fastapi", "starlette", "uvicorn", "pydantic", "pydantic-settings"],
+      "groupName": "fastapi runtime"
+    },
+    {
+      "description": "Group persistence libraries",
+      "matchPackageNames": ["sqlalchemy", "alembic", "psycopg"],
+      "groupName": "database stack"
+    },
+    {
+      "description": "Group test tooling",
+      "matchDepTypes": ["dev", "optional"],
+      "matchPackageNames": ["pytest", "pytest-cov"],
+      "groupName": "test tooling"
+    },
+    {
+      "description": "Automerge low-risk GitHub Action patch updates",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true
+    }
+  ]
+}
