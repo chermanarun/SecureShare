@@ -50,7 +50,7 @@ class DocumentRead(BaseModel):
 class ShareRequest(BaseModel):
     subject_type: str = Field(pattern="^(user|group)$")
     subject_id: str
-    role: str = Field(pattern="^(owner|editor|commenter|viewer)$")
+    role: str = Field(pattern="^(editor|commenter|viewer)$")
 
     model_config = {
         "json_schema_extra": {

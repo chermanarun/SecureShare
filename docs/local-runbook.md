@@ -42,11 +42,15 @@ docker compose run --rm api python scripts/bootstrap_openfga.py
 Copy the printed values into `.env`:
 
 ```env
+SECURESHARE_ENVIRONMENT=dev
+SECURESHARE_ALLOW_INSECURE_DEV_DEFAULTS=true
 SECURESHARE_OPENFGA_STORE_ID=<printed-store-id>
 SECURESHARE_OPENFGA_AUTHORIZATION_MODEL_ID=<printed-authorization-model-id>
 SECURESHARE_JWT_SECRET=dev-only-change-me-minimum-32-characters
 SECURESHARE_MACAROON_ROOT_KEY=dev-macaroon-root-key-change-me
 ```
+
+`SECURESHARE_ALLOW_INSECURE_DEV_DEFAULTS=true` is only for local demo runs that intentionally use the public development defaults. Production-like environments should set strong secrets and omit this flag.
 
 ## 4. Start The API
 
@@ -142,6 +146,8 @@ curl -i -X DELETE http://localhost:8000/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaa
   -d '{"subject_type":"user","subject_id":"00000000-0000-0000-0000-000000000002","role":"viewer"}'
 ```
 
+Cross-tenant shares are rejected, and `owner` is no longer a generic share role in v1.
+
 Bob's existing JWT should now fail on the same read:
 
 ```bash
@@ -162,4 +168,3 @@ After changing routes or schemas:
 ```bash
 PYTHONPATH=apps/api uv run python scripts/export_openapi.py
 ```
-

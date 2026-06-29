@@ -5,6 +5,7 @@ This guide is for developers changing SecureShare code. It explains the applicat
 ## Golden Rules
 
 - JWTs prove identity only. Do not put document roles, permissions, group membership, or OpenFGA-derived state into JWT claims.
+- The app must fail closed if default signing keys are used without an explicit local-dev opt-in.
 - Business services do not authorize. They may create, fetch, or mutate data only after a router or dependency has called `AuthorizationService`.
 - All document authorization decisions go through `AuthorizationService`.
 - Every allow and deny from `AuthorizationService` must be auditable.
@@ -72,6 +73,7 @@ When changing JWT handling:
 - Keep `algorithms=[ALGORITHM]`; never accept algorithms from token headers.
 - Keep issuer and audience verification.
 - Keep authorization state out of the token.
+- Keep the startup guard that rejects insecure default signing keys unless local development explicitly opts in.
 - Add tests for malformed, expired, and weak-algorithm tokens.
 
 ## Authorization Rules
@@ -101,6 +103,12 @@ authz.require(
 ```
 
 Then, and only then, call a business service.
+
+Share-path invariants:
+
+- sharing is tenant-local only
+- `owner` is not a normal share role
+- ownership transfer needs a dedicated workflow, not the generic share endpoint
 
 ## OpenFGA Model
 

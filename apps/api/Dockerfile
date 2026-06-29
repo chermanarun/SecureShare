@@ -14,8 +14,11 @@ RUN uv sync --no-dev --frozen
 COPY alembic.ini /app/alembic.ini
 COPY migrations /app/migrations
 COPY scripts /app/scripts
+RUN addgroup --system app && adduser --system --ingroup app --home /app app \
+    && chown -R app:app /app
 
 ENV PYTHONPATH=/app/apps/api
 EXPOSE 8000
+USER app
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

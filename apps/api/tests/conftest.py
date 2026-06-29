@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Generator
 from dataclasses import dataclass, field
 
@@ -9,9 +10,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+os.environ.setdefault("SECURESHARE_ENVIRONMENT", "test")
+os.environ.setdefault("SECURESHARE_JWT_SECRET", "test-jwt-secret-with-at-least-32-characters")
+os.environ.setdefault("SECURESHARE_MACAROON_ROOT_KEY", "test-macaroon-root-key-with-at-least-32-characters")
+
 from app.auth.passwords import hash_password
 from app.authz.dependencies import get_relationship_client
 from app.authz.models import Action
+from app.config import get_settings
 from app.db.session import get_db
 from app.main import create_app
 from app.models.base import Base
@@ -19,6 +25,7 @@ from app.models.document import Document
 from app.models.group import Group, GroupMember
 from app.models.tenant import Tenant
 from app.models.user import User
+from app.routers.auth import get_login_rate_limiter
 
 TENANT_A = "11111111-1111-1111-1111-111111111111"
 TENANT_B = "22222222-2222-2222-2222-222222222222"
@@ -89,6 +96,8 @@ def db_session() -> Generator[Session, None, None]:
 
 @pytest.fixture()
 def client(db_session: Session, relationship_client: FakeRelationshipClient) -> Generator[TestClient, None, None]:
+    get_settings.cache_clear()
+    get_login_rate_limiter.cache_clear()
     app = create_app()
 
     def override_db() -> Generator[Session, None, None]:
@@ -98,6 +107,18 @@ def client(db_session: Session, relationship_client: FakeRelationshipClient) -> 
     app.dependency_overrides[get_relationship_client] = lambda: relationship_client
     with TestClient(app) as test_client:
         yield test_client
+    get_settings.cache_clear()
+    get_login_rate_limiter.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def reset_login_rate_limiter() -> Generator[None, None, None]:
+    get_settings.cache_clear()
+    get_login_rate_limiter.cache_clear()
+    limiter = get_login_rate_limiter()
+    limiter.reset()
+    yield
+    limiter.reset()
 
 
 @pytest.fixture()
@@ -135,4 +156,3 @@ def seed(db: Session) -> None:
         ]
     )
     db.commit()
-

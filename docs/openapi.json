@@ -92,6 +92,9 @@
           "401": {
             "description": "Invalid credentials."
           },
+          "429": {
+            "description": "Too many failed login attempts."
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1047,7 +1050,7 @@
           },
           "role": {
             "type": "string",
-            "pattern": "^(owner|editor|commenter|viewer)$",
+            "pattern": "^(editor|commenter|viewer)$",
             "title": "Role"
           }
         },

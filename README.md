@@ -44,6 +44,8 @@ SecureShare is a small production-style reference app for secure multi-tenant do
    Example `.env`:
 
    ```env
+   SECURESHARE_ENVIRONMENT=dev
+   SECURESHARE_ALLOW_INSECURE_DEV_DEFAULTS=true
    SECURESHARE_OPENFGA_STORE_ID=replace-with-printed-store-id
    SECURESHARE_OPENFGA_AUTHORIZATION_MODEL_ID=replace-with-printed-model-id
    SECURESHARE_JWT_SECRET=dev-only-change-me-minimum-32-characters
@@ -172,3 +174,4 @@ It also generates a CycloneDX SBOM, runs Trivy vulnerability checks against both
 - The OpenFGA bootstrap uses an in-memory OpenFGA datastore for simple local demos.
 - Admin endpoints are intentionally minimal and should be protected by tenant-admin relationships before production use.
 - Delegated tokens are read-only in v1 and are constrained by live issuer authorization at read time.
+- Local Docker Compose now requires an explicit opt-in to insecure demo signing keys via `SECURESHARE_ALLOW_INSECURE_DEV_DEFAULTS=true`; real environments should set unique secrets and omit that flag.

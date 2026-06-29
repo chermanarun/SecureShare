@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: secureshare
       POSTGRES_PASSWORD: secureshare
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U secureshare -d secureshare"]
       interval: 5s
@@ -21,9 +21,6 @@ services:
     environment:
       OPENFGA_DATASTORE_ENGINE: memory
       OPENFGA_LOG_FORMAT: json
-    ports:
-      - "8080:8080"
-      - "8081:8081"
     healthcheck:
       test: ["CMD", "/usr/local/bin/grpc_health_probe", "-addr=openfga:8081"]
       interval: 5s
@@ -35,6 +32,8 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     environment:
+      SECURESHARE_ENVIRONMENT: dev
+      SECURESHARE_ALLOW_INSECURE_DEV_DEFAULTS: "true"
       SECURESHARE_DATABASE_URL: postgresql+psycopg://secureshare:secureshare@postgres:5432/secureshare
       SECURESHARE_OPENFGA_API_URL: http://openfga:8080
       SECURESHARE_OPENFGA_STORE_ID: ${SECURESHARE_OPENFGA_STORE_ID:-dev-store}
@@ -42,18 +41,17 @@ services:
       SECURESHARE_JWT_SECRET: ${SECURESHARE_JWT_SECRET:-dev-only-change-me-minimum-32-characters}
       SECURESHARE_MACAROON_ROOT_KEY: ${SECURESHARE_MACAROON_ROOT_KEY:-dev-macaroon-root-key-change-me}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
       openfga:
         condition: service_started
     volumes:
-      - ./apps/api:/app/apps/api
-      - ./scripts:/app/scripts
-      - ./migrations:/app/migrations
-      - ./alembic.ini:/app/alembic.ini
+      - ./apps/api:/app/apps/api:ro
+      - ./scripts:/app/scripts:ro
+      - ./migrations:/app/migrations:ro
+      - ./alembic.ini:/app/alembic.ini:ro
 
 volumes:
   postgres_data:
-

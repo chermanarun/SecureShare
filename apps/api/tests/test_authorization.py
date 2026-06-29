@@ -1,10 +1,11 @@
 from datetime import UTC, datetime, timedelta
 
 import jwt
+from pydantic import ValidationError
 from fastapi.testclient import TestClient
 
 from app.auth.jwt import ALGORITHM, create_access_token
-from app.config import get_settings
+from app.config import DEFAULT_JWT_SECRET, DEFAULT_MACAROON_ROOT_KEY, Settings, get_settings
 from app.models.audit import AuditLog
 
 from .conftest import ALICE, BOB, DOC_A, DOC_B, EVE, TENANT_A, auth_header
@@ -35,6 +36,25 @@ def test_cross_tenant_request_denied_even_if_tuple_exists(client: TestClient, to
     relationship_client.write(user=f"user:{BOB}", relation="viewer", object_=f"document:{DOC_B}")
     response = client.get(f"/documents/{DOC_B}", headers=auth_header(tokens["bob"]))
     assert response.status_code == 403
+
+
+def test_cross_tenant_share_is_denied(client: TestClient, tokens: dict[str, str]) -> None:
+    response = client.post(
+        f"/documents/{DOC_A}/shares",
+        json={"subject_type": "user", "subject_id": EVE, "role": "viewer"},
+        headers=auth_header(tokens["alice"]),
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Cross-tenant sharing is not allowed"
+
+
+def test_owner_role_cannot_be_granted_via_share_api(client: TestClient, tokens: dict[str, str]) -> None:
+    response = client.post(
+        f"/documents/{DOC_A}/shares",
+        json={"subject_type": "user", "subject_id": BOB, "role": "owner"},
+        headers=auth_header(tokens["alice"]),
+    )
+    assert response.status_code == 422
 
 
 def test_revoked_access_takes_effect_immediately_with_stale_jwt(client: TestClient, tokens: dict[str, str]) -> None:
@@ -113,22 +133,58 @@ def test_wrong_ip_delegated_token_denied(client: TestClient, tokens: dict[str, s
     assert response.status_code == 403
 
 
-def test_delegated_token_revocation_uses_live_relationships(client: TestClient, tokens: dict[str, str]) -> None:
+def test_delegated_token_revocation_uses_live_relationships(
+    client: TestClient,
+    tokens: dict[str, str],
+    relationship_client,
+) -> None:
     issued = client.post(
         f"/documents/{DOC_A}/shares/delegated-link",
         json={"expires_in_seconds": 60},
         headers=auth_header(tokens["alice"]),
     )
     assert issued.status_code == 200
-    revoke_owner = client.request(
-        "DELETE",
-        f"/documents/{DOC_A}/shares",
-        json={"subject_type": "user", "subject_id": ALICE, "role": "owner"},
-        headers=auth_header(tokens["alice"]),
-    )
-    assert revoke_owner.status_code == 204
+    relationship_client.delete(user=f"user:{ALICE}", relation="owner", object_=f"document:{DOC_A}")
     response = client.get(f"/delegated/documents/{DOC_A}", headers={"x-delegation-token": issued.json()["token"]})
     assert response.status_code == 403
+
+
+def test_login_rate_limit_and_failed_logins_are_audited(client: TestClient, db_session) -> None:
+    for _ in range(5):
+        response = client.post("/auth/login", json={"email": "alice@example.com", "password": "wrong-password"})
+        assert response.status_code == 401
+    limited = client.post("/auth/login", json={"email": "alice@example.com", "password": "wrong-password"})
+    assert limited.status_code == 429
+    rows = db_session.query(AuditLog).filter(AuditLog.resource == "auth:login").all()
+    assert len(rows) == 6
+    assert rows[-1].reason == "rate limit exceeded"
+
+
+def test_readiness_does_not_leak_raw_backend_errors(client: TestClient, monkeypatch) -> None:
+    import app.routers.health as health_module
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("tcp connect ECONNREFUSED postgres:5432 secret-details")
+
+    monkeypatch.setattr(health_module, "httpx", type("FakeHttpx", (), {"get": staticmethod(boom)}))
+    response = client.get("/readyz")
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["components"]["openfga"]["detail"] == "authorization backend unavailable"
+    assert "secret-details" not in str(payload)
+
+
+def test_settings_reject_default_signing_keys_without_explicit_opt_in() -> None:
+    try:
+        Settings(
+            environment="dev",
+            allow_insecure_dev_defaults=False,
+            jwt_secret=DEFAULT_JWT_SECRET,
+            macaroon_root_key=DEFAULT_MACAROON_ROOT_KEY,
+        )
+    except ValidationError:
+        return
+    raise AssertionError("Expected settings validation to fail for insecure default keys")
 
 
 def test_every_authorization_decision_is_audited(client: TestClient, tokens: dict[str, str], db_session) -> None:
@@ -137,5 +193,4 @@ def test_every_authorization_decision_is_audited(client: TestClient, tokens: dic
     rows = db_session.query(AuditLog).all()
     assert {row.decision for row in rows} >= {"allow", "deny"}
     assert all(row.request_id for row in rows)
-    assert all(row.source in {"openfga", "macaroon"} for row in rows)
-
+    assert all(row.source in {"openfga", "macaroon", "auth"} for row in rows)

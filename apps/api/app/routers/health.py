@@ -36,15 +36,15 @@ def readyz(db: Session = Depends(get_db)) -> JSONResponse | ReadinessStatus:
     try:
         db.execute(text("select 1"))
         components["postgres"] = ComponentStatus(status="ok", detail="select 1 succeeded")
-    except Exception as exc:
-        components["postgres"] = ComponentStatus(status="error", detail=str(exc))
+    except Exception:
+        components["postgres"] = ComponentStatus(status="error", detail="database unavailable")
 
     try:
         response = httpx.get(f"{settings.openfga_api_url.rstrip('/')}/healthz", timeout=2.0)
         response.raise_for_status()
         components["openfga"] = ComponentStatus(status="ok", detail="health endpoint succeeded")
-    except Exception as exc:
-        components["openfga"] = ComponentStatus(status="error", detail=str(exc))
+    except Exception:
+        components["openfga"] = ComponentStatus(status="error", detail="authorization backend unavailable")
 
     overall = "ok" if all(component.status == "ok" for component in components.values()) else "error"
     payload = ReadinessStatus(status=overall, service=settings.app_name, version="0.1.0", components=components)
