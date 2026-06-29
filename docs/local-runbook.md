@@ -19,7 +19,20 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --extra dev
 ```
 
-## 2. Start PostgreSQL And OpenFGA
+## 2. Create Local Secrets
+
+Create a `.env` file before starting the stack:
+
+```env
+SECURESHARE_ENVIRONMENT=dev
+SECURESHARE_OPENFGA_PRESHARED_KEY=<random-32-plus-character-value>
+SECURESHARE_JWT_SECRET=<random-32-plus-character-value>
+SECURESHARE_MACAROON_ROOT_KEY=<random-32-plus-character-value>
+```
+
+The API no longer accepts the published demo defaults. In `dev`, omitted secrets are generated ephemerally for in-process runs, but Docker Compose requires explicit values so restarts stay predictable and OpenFGA auth stays aligned.
+
+## 3. Start PostgreSQL And OpenFGA
 
 ```bash
 docker compose up -d postgres openfga
@@ -31,7 +44,7 @@ Check containers:
 docker compose ps
 ```
 
-## 3. Bootstrap OpenFGA
+## 4. Bootstrap OpenFGA
 
 The demo OpenFGA server starts without a store. Create a store and authorization model:
 
@@ -42,37 +55,31 @@ docker compose run --rm api python scripts/bootstrap_openfga.py
 Copy the printed values into `.env`:
 
 ```env
-SECURESHARE_ENVIRONMENT=dev
-SECURESHARE_ALLOW_INSECURE_DEV_DEFAULTS=true
 SECURESHARE_OPENFGA_STORE_ID=<printed-store-id>
 SECURESHARE_OPENFGA_AUTHORIZATION_MODEL_ID=<printed-authorization-model-id>
-SECURESHARE_JWT_SECRET=dev-only-change-me-minimum-32-characters
-SECURESHARE_MACAROON_ROOT_KEY=dev-macaroon-root-key-change-me
 ```
 
-`SECURESHARE_ALLOW_INSECURE_DEV_DEFAULTS=true` is only for local demo runs that intentionally use the public development defaults. Production-like environments should set strong secrets and omit this flag.
-
-## 4. Start The API
+## 5. Start The API
 
 ```bash
 docker compose up -d api
 ```
 
-## 5. Run Migrations And Seed Data
+## 6. Run Migrations And Seed Data
 
 ```bash
 docker compose exec api alembic upgrade head
 docker compose exec api python scripts/seed.py
 ```
 
-## 6. Open Swagger
+## 7. Open Swagger
 
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 - Raw OpenAPI JSON: `http://localhost:8000/openapi.json`
 - Committed OpenAPI artifact: `docs/openapi.json`
 
-## 7. Test Health Endpoints
+## 8. Test Health Endpoints
 
 Liveness:
 
@@ -98,7 +105,7 @@ curl -i http://localhost:8000/readyz
 
 Expected HTTP `200` when PostgreSQL and OpenFGA are reachable. If either dependency is unavailable, the endpoint returns HTTP `503` with per-component details.
 
-## 8. Login And Exercise Authorization
+## 9. Login And Exercise Authorization
 
 Login as Alice:
 
@@ -155,13 +162,22 @@ curl -i http://localhost:8000/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa \
   -H "authorization: Bearer $BOB_TOKEN"
 ```
 
-## 9. Run Tests
+Inspect audit logs as tenant admin:
+
+```bash
+curl http://localhost:8000/audit \
+  -H "authorization: Bearer $ALICE_TOKEN"
+```
+
+Bob should receive `403 Tenant admin access required` on the same endpoint.
+
+## 10. Run Tests
 
 ```bash
 uv run pytest
 ```
 
-## 10. Export OpenAPI JSON
+## 11. Export OpenAPI JSON
 
 After changing routes or schemas:
 

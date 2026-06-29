@@ -26,6 +26,8 @@ class OpenFGAClient:
         headers = {"content-type": "application/json"}
         if self.settings.openfga_authorization_model_id:
             headers["authorization-model-id"] = self.settings.openfga_authorization_model_id
+        if self.settings.openfga_api_token:
+            headers["authorization"] = f"Bearer {self.settings.openfga_api_token}"
         return headers
 
     def check(self, *, user: str, relation: str, object_: str) -> bool:

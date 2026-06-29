@@ -1,12 +1,14 @@
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import jwt
-from pydantic import ValidationError
 from fastapi.testclient import TestClient
 
 from app.auth.jwt import ALGORITHM, create_access_token
+from app.authz.models import Role
 from app.config import DEFAULT_JWT_SECRET, DEFAULT_MACAROON_ROOT_KEY, Settings, get_settings
 from app.models.audit import AuditLog
+from app.models.document import Document
 
 from .conftest import ALICE, BOB, DOC_A, DOC_B, EVE, TENANT_A, auth_header
 
@@ -155,9 +157,24 @@ def test_login_rate_limit_and_failed_logins_are_audited(client: TestClient, db_s
         assert response.status_code == 401
     limited = client.post("/auth/login", json={"email": "alice@example.com", "password": "wrong-password"})
     assert limited.status_code == 429
-    rows = db_session.query(AuditLog).filter(AuditLog.resource == "auth:login").all()
+    rows = db_session.query(AuditLog).filter(AuditLog.resource == "auth:login:alice@example.com").all()
     assert len(rows) == 6
     assert rows[-1].reason == "rate limit exceeded"
+
+
+def test_audit_logs_require_tenant_admin(client: TestClient, tokens: dict[str, str]) -> None:
+    response = client.get("/audit", headers=auth_header(tokens["bob"]))
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Tenant admin access required"
+
+
+def test_tenant_admin_can_read_audit_logs(client: TestClient, tokens: dict[str, str]) -> None:
+    client.get(f"/documents/{DOC_A}", headers=auth_header(tokens["alice"]))
+    response = client.get("/audit", headers=auth_header(tokens["alice"]))
+    assert response.status_code == 200
+    rows = response.json()
+    assert rows
+    assert all(row["tenant_id"] == TENANT_A for row in rows)
 
 
 def test_readiness_does_not_leak_raw_backend_errors(client: TestClient, monkeypatch) -> None:
@@ -174,17 +191,48 @@ def test_readiness_does_not_leak_raw_backend_errors(client: TestClient, monkeypa
     assert "secret-details" not in str(payload)
 
 
-def test_settings_reject_default_signing_keys_without_explicit_opt_in() -> None:
-    try:
-        Settings(
-            environment="dev",
-            allow_insecure_dev_defaults=False,
-            jwt_secret=DEFAULT_JWT_SECRET,
-            macaroon_root_key=DEFAULT_MACAROON_ROOT_KEY,
-        )
-    except ValidationError:
-        return
-    raise AssertionError("Expected settings validation to fail for insecure default keys")
+def test_settings_reject_legacy_public_signing_keys() -> None:
+    for kwargs in (
+        {"environment": "dev", "jwt_secret": DEFAULT_JWT_SECRET, "macaroon_root_key": "strong-macaroon-root-key-value"},
+        {"environment": "dev", "jwt_secret": "strong-jwt-secret-value", "macaroon_root_key": DEFAULT_MACAROON_ROOT_KEY},
+    ):
+        try:
+            Settings(**kwargs)
+        except Exception:
+            continue
+        raise AssertionError("Expected settings validation to fail for legacy public signing keys")
+
+
+def test_dev_settings_generate_ephemeral_signing_keys() -> None:
+    settings = Settings(environment="dev", jwt_secret=None, macaroon_root_key=None)
+    assert settings.jwt_secret
+    assert settings.macaroon_root_key
+    assert settings.jwt_secret != DEFAULT_JWT_SECRET
+    assert settings.macaroon_root_key != DEFAULT_MACAROON_ROOT_KEY
+    assert len(settings.jwt_secret) >= 32
+    assert len(settings.macaroon_root_key) >= 32
+
+
+def test_document_create_rolls_back_if_openfga_write_fails(client: TestClient, db_session, relationship_client) -> None:
+    original_write = relationship_client.write
+
+    def failing_write(*, user: str, relation: str, object_: str) -> None:
+        if relation == Role.OWNER.value:
+            request = httpx.Request("POST", "http://openfga.test/stores/dev-store/write")
+            response = httpx.Response(status_code=503, request=request)
+            raise httpx.HTTPStatusError("openfga unavailable", request=request, response=response)
+        original_write(user=user, relation=relation, object_=object_)
+
+    relationship_client.write = failing_write
+    token = client.post("/auth/login", json={"email": "alice@example.com", "password": "password123"}).json()["access_token"]
+    response = client.post(
+        "/documents",
+        json={"title": "Should fail", "body": "rollback me"},
+        headers=auth_header(token),
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Authorization backend unavailable during document creation"
+    assert db_session.query(Document).filter(Document.title == "Should fail").count() == 0
 
 
 def test_every_authorization_decision_is_audited(client: TestClient, tokens: dict[str, str], db_session) -> None:

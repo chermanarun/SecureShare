@@ -33,9 +33,12 @@ def create_document(
     authz: AuthorizationService = Depends(get_authorization_service),
 ) -> DocumentRead:
     service = DocumentService(db)
-    document = service.create_document(tenant_id=principal.tenant_id, owner_id=principal.user_id, data=payload)
-    for user, relation, object_ in service.owner_relationships(document=document):
-        authz.relationships.write(user=user, relation=relation, object_=object_)
+    document = service.create_document_with_relationships(
+        tenant_id=principal.tenant_id,
+        owner_id=principal.user_id,
+        data=payload,
+        relationships=authz.relationships,
+    )
     return DocumentRead.model_validate(document)
 
 

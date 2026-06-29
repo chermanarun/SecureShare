@@ -5,10 +5,11 @@ This guide is for developers changing SecureShare code. It explains the applicat
 ## Golden Rules
 
 - JWTs prove identity only. Do not put document roles, permissions, group membership, or OpenFGA-derived state into JWT claims.
-- The app must fail closed if default signing keys are used without an explicit local-dev opt-in.
+- The app must fail closed if legacy public signing keys are configured. Dev-only in-process runs may generate ephemeral secrets, but Compose and non-dev environments must provide explicit keys.
 - Business services do not authorize. They may create, fetch, or mutate data only after a router or dependency has called `AuthorizationService`.
 - All document authorization decisions go through `AuthorizationService`.
 - Every allow and deny from `AuthorizationService` must be auditable.
+- Reading tenant audit logs requires a tenant-admin relationship in OpenFGA.
 - Revocation must be live. A stale JWT must not preserve access after an OpenFGA tuple is removed.
 - Cross-tenant checks happen before returning resource data.
 - Delegated tokens are attenuated read tokens, not a second authorization system.
@@ -73,7 +74,7 @@ When changing JWT handling:
 - Keep `algorithms=[ALGORITHM]`; never accept algorithms from token headers.
 - Keep issuer and audience verification.
 - Keep authorization state out of the token.
-- Keep the startup guard that rejects insecure default signing keys unless local development explicitly opts in.
+- Keep the startup guard that rejects legacy public signing keys and requires explicit keys outside dev.
 - Add tests for malformed, expired, and weak-algorithm tokens.
 
 ## Authorization Rules
@@ -86,6 +87,12 @@ When changing JWT handling:
 - audit logging
 
 The service returns `AuthorizationDecision` for internal use and `require()` raises `403` for route enforcement.
+
+Operational notes:
+
+- OpenFGA is the source of object authorization and tenant-admin checks.
+- Routers may use helper methods such as `require_tenant_admin(...)`, but business services must stay free of embedded authorization logic.
+- Audit log reads are sensitive because they reveal deny reasons and resource access patterns. Keep them behind tenant-admin relationships.
 
 When adding a protected document endpoint:
 
@@ -171,6 +178,8 @@ Required fields:
 - decision source
 
 If you introduce a new authorization path, route it through `AuthorizationService` or add equivalent audit coverage before merging.
+
+Login throttling also writes deny decisions into `audit_logs` and is intentionally backed by the database so it survives process restarts and horizontal scaling better than an in-memory limiter.
 
 ## Adding A New Protected Endpoint
 

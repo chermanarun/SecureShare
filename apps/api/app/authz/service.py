@@ -3,7 +3,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.audit.service import AuditService
-from app.authz.client import ACTION_TO_RELATION, ROLE_TO_RELATION, RelationshipClient, document_ref, group_member_ref, user_ref
+from app.authz.client import ACTION_TO_RELATION, ROLE_TO_RELATION, RelationshipClient, document_ref, group_member_ref, tenant_ref, user_ref
 from app.authz.models import AuthorizationDecision, AuthorizationRequest, Role
 from app.models.document import Document
 from app.models.group import Group
@@ -85,6 +85,37 @@ class AuthorizationService:
 
     def inspect_document(self, *, document_id: str) -> list[dict[str, str]]:
         return self.relationships.list_object_relations(object_=document_ref(document_id))
+
+    def require_tenant_admin(self, *, user_id: str, tenant_id: str, request_id: str) -> None:
+        try:
+            allowed = self.relationships.check(user=user_ref(user_id), relation="admin", object_=tenant_ref(tenant_id))
+        except httpx.HTTPError as exc:
+            self.audit.record(
+                request_id=request_id,
+                user_id=user_id,
+                tenant_id=tenant_id,
+                resource=f"tenant:{tenant_id}",
+                action="tenant_admin",
+                allow=False,
+                reason="authorization backend unavailable",
+                source="openfga",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authorization backend unavailable",
+            ) from exc
+        self.audit.record(
+            request_id=request_id,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            resource=f"tenant:{tenant_id}",
+            action="tenant_admin",
+            allow=allowed,
+            reason="tenant admin check",
+            source="openfga",
+        )
+        if not allowed:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant admin access required")
 
     def _audit(self, request: AuthorizationRequest, decision: AuthorizationDecision) -> None:
         self.audit.record(

@@ -29,13 +29,22 @@ SecureShare is a small production-style reference app for secure multi-tenant do
 
 ## Local Run
 
-1. Start infrastructure:
+1. Create a local `.env` with unique development secrets:
+
+   ```env
+   SECURESHARE_ENVIRONMENT=dev
+   SECURESHARE_OPENFGA_PRESHARED_KEY=replace-with-a-random-32-plus-character-value
+   SECURESHARE_JWT_SECRET=replace-with-a-random-32-plus-character-value
+   SECURESHARE_MACAROON_ROOT_KEY=replace-with-a-random-32-plus-character-value
+   ```
+
+2. Start infrastructure:
 
    ```bash
    docker compose up -d postgres openfga
    ```
 
-2. Bootstrap OpenFGA and copy the printed values into `.env`:
+3. Bootstrap OpenFGA and copy the printed values into `.env`:
 
    ```bash
    docker compose run --rm api python scripts/bootstrap_openfga.py
@@ -44,28 +53,24 @@ SecureShare is a small production-style reference app for secure multi-tenant do
    Example `.env`:
 
    ```env
-   SECURESHARE_ENVIRONMENT=dev
-   SECURESHARE_ALLOW_INSECURE_DEV_DEFAULTS=true
    SECURESHARE_OPENFGA_STORE_ID=replace-with-printed-store-id
    SECURESHARE_OPENFGA_AUTHORIZATION_MODEL_ID=replace-with-printed-model-id
-   SECURESHARE_JWT_SECRET=dev-only-change-me-minimum-32-characters
-   SECURESHARE_MACAROON_ROOT_KEY=dev-macaroon-root-key-change-me
    ```
 
-3. Start the API with the populated environment:
+4. Start the API with the populated environment:
 
    ```bash
    docker compose up -d api
    ```
 
-4. Run migrations and seed demo data:
+5. Run migrations and seed demo data:
 
    ```bash
    docker compose exec api alembic upgrade head
    docker compose exec api python scripts/seed.py
    ```
 
-5. Open the API:
+6. Open the API:
 
    - Health: `http://localhost:8000/healthz`
    - Readiness: `http://localhost:8000/readyz`
@@ -139,7 +144,7 @@ curl http://localhost:8000/delegated/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaa
   -H "x-delegation-token: $DELEGATION_TOKEN"
 ```
 
-Inspect audit logs:
+Inspect audit logs as tenant admin:
 
 ```bash
 curl http://localhost:8000/audit -H "authorization: Bearer $ALICE_TOKEN"
@@ -174,4 +179,4 @@ It also generates a CycloneDX SBOM, runs Trivy vulnerability checks against both
 - The OpenFGA bootstrap uses an in-memory OpenFGA datastore for simple local demos.
 - Admin endpoints are intentionally minimal and should be protected by tenant-admin relationships before production use.
 - Delegated tokens are read-only in v1 and are constrained by live issuer authorization at read time.
-- Local Docker Compose now requires an explicit opt-in to insecure demo signing keys via `SECURESHARE_ALLOW_INSECURE_DEV_DEFAULTS=true`; real environments should set unique secrets and omit that flag.
+- Local Docker Compose requires explicit unique secrets and an OpenFGA preshared key in `.env`. Bare `docker compose up` no longer falls back to public demo credentials.

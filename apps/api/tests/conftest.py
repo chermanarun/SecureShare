@@ -15,6 +15,7 @@ os.environ.setdefault("SECURESHARE_JWT_SECRET", "test-jwt-secret-with-at-least-3
 os.environ.setdefault("SECURESHARE_MACAROON_ROOT_KEY", "test-macaroon-root-key-with-at-least-32-characters")
 
 from app.auth.passwords import hash_password
+from app.authz.client import tenant_ref, user_ref
 from app.authz.dependencies import get_relationship_client
 from app.authz.models import Action
 from app.config import get_settings
@@ -25,7 +26,6 @@ from app.models.document import Document
 from app.models.group import Group, GroupMember
 from app.models.tenant import Tenant
 from app.models.user import User
-from app.routers.auth import get_login_rate_limiter
 
 TENANT_A = "11111111-1111-1111-1111-111111111111"
 TENANT_B = "22222222-2222-2222-2222-222222222222"
@@ -71,6 +71,8 @@ class FakeRelationshipClient:
 def relationship_client() -> FakeRelationshipClient:
     fake = FakeRelationshipClient()
     fake.group_members.add((GROUP_A, f"user:{BOB}"))
+    fake.write(user=user_ref(ALICE), relation="admin", object_=tenant_ref(TENANT_A))
+    fake.write(user=user_ref(EVE), relation="admin", object_=tenant_ref(TENANT_B))
     fake.write(user=f"user:{ALICE}", relation="owner", object_=f"document:{DOC_A}")
     fake.write(user=f"user:{BOB}", relation="viewer", object_=f"document:{DOC_A}")
     fake.write(user=f"user:{EVE}", relation="owner", object_=f"document:{DOC_B}")
@@ -97,7 +99,6 @@ def db_session() -> Generator[Session, None, None]:
 @pytest.fixture()
 def client(db_session: Session, relationship_client: FakeRelationshipClient) -> Generator[TestClient, None, None]:
     get_settings.cache_clear()
-    get_login_rate_limiter.cache_clear()
     app = create_app()
 
     def override_db() -> Generator[Session, None, None]:
@@ -108,17 +109,6 @@ def client(db_session: Session, relationship_client: FakeRelationshipClient) -> 
     with TestClient(app) as test_client:
         yield test_client
     get_settings.cache_clear()
-    get_login_rate_limiter.cache_clear()
-
-
-@pytest.fixture(autouse=True)
-def reset_login_rate_limiter() -> Generator[None, None, None]:
-    get_settings.cache_clear()
-    get_login_rate_limiter.cache_clear()
-    limiter = get_login_rate_limiter()
-    limiter.reset()
-    yield
-    limiter.reset()
 
 
 @pytest.fixture()

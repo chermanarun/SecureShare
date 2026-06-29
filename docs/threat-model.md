@@ -67,11 +67,11 @@ Controls:
 
 - `AuthorizationService` records every allow and deny.
 - Audit rows include request ID, user, tenant, resource, action, decision, reason, and decision source.
+- Audit log reads require a tenant-admin relationship in OpenFGA.
 
 ## Residual Risks
 
 - The local JWT issuer is not suitable for production identity federation.
-- Demo OpenFGA uses an in-memory datastore unless reconfigured.
-- Admin relationship inspection should be narrowed to tenant admins for a real deployment.
+- Demo OpenFGA still uses an in-memory datastore in local Compose; production should move the relationship store to a durable backend and manage retention separately from the API database.
+- Document relationship inspection is still owner-gated rather than tenant-admin-gated.
 - Audit retention, tamper resistance, and export to a SIEM are left as production extensions.
-
