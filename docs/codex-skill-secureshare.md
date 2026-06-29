@@ -42,7 +42,7 @@ Build a secure reference app for modern authorization.
 ## Delegation rules
 - Delegated tokens are read-only in v1
 - Tokens must include expiry caveat
-- Tokens should support optional IP caveat
+- Tokens must bind to an IP caveat
 - Tokens must not grant broader permissions than the issuing user already has
 
 ## Logging rules

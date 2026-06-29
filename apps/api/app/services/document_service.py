@@ -2,6 +2,7 @@ import httpx
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.authz.repair import AuthzRepairService
 from app.authz.client import RelationshipClient, document_ref, tenant_ref, user_ref
 from app.authz.models import Role
 from app.models.document import Document
@@ -63,13 +64,19 @@ class DocumentService:
             (document_ref(document.id), "parent", tenant_ref(document.tenant_id)),
         ]
 
-    @staticmethod
     def _best_effort_relationship_cleanup(
+        self,
         relationships: RelationshipClient,
         written_relationships: list[tuple[str, str, str]],
     ) -> None:
+        repair = AuthzRepairService(self.db)
         for user, relation, object_ in reversed(written_relationships):
             try:
                 relationships.delete(user=user, relation=relation, object_=object_)
-            except Exception:
-                pass
+            except Exception as exc:
+                repair.enqueue_delete_relationship(
+                    user=user,
+                    relation=relation,
+                    object_=object_,
+                    error=str(exc),
+                )

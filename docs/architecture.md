@@ -57,13 +57,13 @@ Delegated read links are Macaroon-style tokens with caveats:
 - tenant ID
 - issuing user ID
 - expiry timestamp
-- optional IP address
+- caller IP address
 
 Delegated access is not a separate authority. After caveat verification, SecureShare performs a live OpenFGA read check for the issuing user. Revoking the issuer's access immediately invalidates delegated reads.
 
 ### Persistence
 
-PostgreSQL stores tenants, users, groups, documents, group membership, and audit logs. OpenFGA stores relationship tuples.
+PostgreSQL stores tenants, users, groups, documents, group membership, audit logs, and authorization repair jobs. OpenFGA stores relationship tuples in its own durable Postgres-backed datastore.
 
 ## Request Flow
 

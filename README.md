@@ -137,6 +137,8 @@ curl -X POST http://localhost:8000/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa
   -d '{"expires_in_seconds":300}'
 ```
 
+Delegated links are automatically bound to the caller IP unless an explicit `ip_address` caveat is provided.
+
 Read through delegated access:
 
 ```bash
@@ -176,7 +178,7 @@ It also generates a CycloneDX SBOM, runs Trivy vulnerability checks against both
 ## Known Gaps
 
 - Local JWT issuing is for development only. Replace it with a real IdP for production.
-- The OpenFGA bootstrap uses an in-memory OpenFGA datastore for simple local demos.
-- Admin endpoints are intentionally minimal and should be protected by tenant-admin relationships before production use.
+- The local stack now uses a durable Postgres-backed OpenFGA datastore, but production still needs backup, retention, and operational monitoring around the relationship store.
 - Delegated tokens are read-only in v1 and are constrained by live issuer authorization at read time.
+- Authorization repair jobs are queued when compensating OpenFGA cleanup fails; production should run `scripts/process_authz_repair_jobs.py` on a schedule or worker.
 - Local Docker Compose requires explicit unique secrets and an OpenFGA preshared key in `.env`. Bare `docker compose up` no longer falls back to public demo credentials.

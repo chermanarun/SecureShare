@@ -14,12 +14,27 @@ services:
       retries: 20
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+
+  openfga-migrate:
+    image: openfga/openfga:v1.8
+    command: migrate
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://secureshare:secureshare@postgres:5432/openfga?sslmode=disable
+      OPENFGA_LOG_FORMAT: json
+      OPENFGA_AUTHN_METHOD: preshared
+      OPENFGA_AUTHN_PRESHARED_KEYS: ${SECURESHARE_OPENFGA_PRESHARED_KEY:?set in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   openfga:
     image: openfga/openfga:v1.8
     command: run
     environment:
-      OPENFGA_DATASTORE_ENGINE: memory
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://secureshare:secureshare@postgres:5432/openfga?sslmode=disable
       OPENFGA_LOG_FORMAT: json
       OPENFGA_AUTHN_METHOD: preshared
       OPENFGA_AUTHN_PRESHARED_KEYS: ${SECURESHARE_OPENFGA_PRESHARED_KEY:?set in .env}
@@ -28,6 +43,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    depends_on:
+      postgres:
+        condition: service_healthy
+      openfga-migrate:
+        condition: service_completed_successfully
 
   api:
     build:
@@ -48,7 +68,7 @@ services:
       postgres:
         condition: service_healthy
       openfga:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./apps/api:/app/apps/api:ro
       - ./scripts:/app/scripts:ro

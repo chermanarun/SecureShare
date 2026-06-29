@@ -74,10 +74,11 @@ def revoke_document_share(
     summary="Create a delegated read link",
     description=(
         "Issues a Macaroon-style delegated read token with caveats for action, document, tenant, issuer, "
-        "expiry, and optional IP address. The issuer must currently have `can_read`."
+        "expiry, and caller IP address. The issuer must currently have `can_read`."
     ),
     responses={
         200: {"description": "Delegated token issued."},
+        400: {"description": "Caller IP could not be bound into the delegated token."},
         401: {"description": "Missing or invalid JWT."},
         403: {"description": "Issuer cannot read this document."},
     },
@@ -94,6 +95,7 @@ def create_delegated_link(
         issuer_tenant_id=principal.tenant_id,
         document_id=document_id,
         expires_in_seconds=payload.expires_in_seconds,
+        request_ip=request.client.host if request.client else None,
         ip_address=payload.ip_address,
         request_id=request.state.request_id,
         authz=authz,

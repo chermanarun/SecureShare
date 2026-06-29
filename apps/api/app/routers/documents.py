@@ -18,20 +18,24 @@ router = APIRouter(prefix="/documents", tags=["documents"])
     status_code=status.HTTP_201_CREATED,
     summary="Create a document",
     description=(
-        "Creates a document in the caller's tenant, stores application data in PostgreSQL, "
-        "and writes OpenFGA owner and tenant-parent relationships. Requires authentication."
+        "Creates a document in the caller's tenant only after the shared authorization service verifies "
+        "live tenant membership, then stores application data in PostgreSQL and writes OpenFGA owner "
+        "and tenant-parent relationships."
     ),
     responses={
         201: {"description": "Document created and owner relationship written."},
         401: {"description": "Missing or invalid JWT."},
+        403: {"description": "Caller is not an active member of the tenant."},
     },
 )
 def create_document(
     payload: DocumentCreate,
+    request: Request,
     principal: Principal = Depends(get_current_principal),
     db: Session = Depends(get_db),
     authz: AuthorizationService = Depends(get_authorization_service),
 ) -> DocumentRead:
+    authz.require_tenant_member(user_id=principal.user_id, tenant_id=principal.tenant_id, request_id=request.state.request_id)
     service = DocumentService(db)
     document = service.create_document_with_relationships(
         tenant_id=principal.tenant_id,
@@ -107,8 +111,8 @@ def update_document(
     response_model=RelationshipInspection,
     summary="Inspect document relationships",
     description=(
-        "Returns OpenFGA relationships for a document. This demo admin endpoint requires `can_share`, "
-        "which is currently granted to document owners."
+        "Returns OpenFGA relationships for a document. This admin endpoint requires tenant-admin access "
+        "and only reveals relationships for documents inside the caller's tenant."
     ),
     responses={
         200: {"description": "Document relationships returned."},
@@ -120,9 +124,15 @@ def inspect_relationships(
     document_id: str,
     request: Request,
     principal: Principal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
     authz: AuthorizationService = Depends(get_authorization_service),
 ) -> RelationshipInspection:
-    authz.require(_authz_request(request, principal, document_id, Action.SHARE))
+    document = DocumentService(db).get_document(document_id=document_id)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    if document.tenant_id != principal.tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="cross-tenant resource access denied")
+    authz.require_tenant_admin(user_id=principal.user_id, tenant_id=principal.tenant_id, request_id=request.state.request_id)
     return RelationshipInspection(document_id=document_id, relationships=authz.inspect_document(document_id=document_id))
 
 

@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 os.environ.setdefault("SECURESHARE_ENVIRONMENT", "test")
 os.environ.setdefault("SECURESHARE_JWT_SECRET", "test-jwt-secret-with-at-least-32-characters")
 os.environ.setdefault("SECURESHARE_MACAROON_ROOT_KEY", "test-macaroon-root-key-with-at-least-32-characters")
+os.environ.setdefault("SECURESHARE_OPENFGA_API_TOKEN", "test-openfga-token-with-at-least-32-characters")
 
 from app.auth.passwords import hash_password
 from app.authz.client import tenant_ref, user_ref
@@ -22,6 +23,7 @@ from app.config import get_settings
 from app.db.session import get_db
 from app.main import create_app
 from app.models.base import Base
+from app.models.authz_repair_job import AuthzRepairJob
 from app.models.document import Document
 from app.models.group import Group, GroupMember
 from app.models.tenant import Tenant
@@ -71,6 +73,9 @@ class FakeRelationshipClient:
 def relationship_client() -> FakeRelationshipClient:
     fake = FakeRelationshipClient()
     fake.group_members.add((GROUP_A, f"user:{BOB}"))
+    fake.write(user=user_ref(ALICE), relation="member", object_=tenant_ref(TENANT_A))
+    fake.write(user=user_ref(BOB), relation="member", object_=tenant_ref(TENANT_A))
+    fake.write(user=user_ref(EVE), relation="member", object_=tenant_ref(TENANT_B))
     fake.write(user=user_ref(ALICE), relation="admin", object_=tenant_ref(TENANT_A))
     fake.write(user=user_ref(EVE), relation="admin", object_=tenant_ref(TENANT_B))
     fake.write(user=f"user:{ALICE}", relation="owner", object_=f"document:{DOC_A}")

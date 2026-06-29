@@ -53,6 +53,16 @@ class AuthorizationService:
         if not decision.allow:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=decision.reason)
 
+    def require_tenant_member(self, *, user_id: str, tenant_id: str, request_id: str) -> None:
+        self._require_tenant_relation(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            request_id=request_id,
+            relations=("member", "admin"),
+            action="tenant_member",
+            detail="Tenant membership required",
+        )
+
     def grant_document_role(self, *, actor_request: AuthorizationRequest, subject_type: str, subject_id: str, role: Role) -> None:
         self.require(actor_request)
         if role is Role.OWNER:
@@ -87,15 +97,37 @@ class AuthorizationService:
         return self.relationships.list_object_relations(object_=document_ref(document_id))
 
     def require_tenant_admin(self, *, user_id: str, tenant_id: str, request_id: str) -> None:
+        self._require_tenant_relation(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            request_id=request_id,
+            relations=("admin",),
+            action="tenant_admin",
+            detail="Tenant admin access required",
+        )
+
+    def _require_tenant_relation(
+        self,
+        *,
+        user_id: str,
+        tenant_id: str,
+        request_id: str,
+        relations: tuple[str, ...],
+        action: str,
+        detail: str,
+    ) -> None:
         try:
-            allowed = self.relationships.check(user=user_ref(user_id), relation="admin", object_=tenant_ref(tenant_id))
+            allowed = any(
+                self.relationships.check(user=user_ref(user_id), relation=relation, object_=tenant_ref(tenant_id))
+                for relation in relations
+            )
         except httpx.HTTPError as exc:
             self.audit.record(
                 request_id=request_id,
                 user_id=user_id,
                 tenant_id=tenant_id,
                 resource=f"tenant:{tenant_id}",
-                action="tenant_admin",
+                action=action,
                 allow=False,
                 reason="authorization backend unavailable",
                 source="openfga",
@@ -109,13 +141,13 @@ class AuthorizationService:
             user_id=user_id,
             tenant_id=tenant_id,
             resource=f"tenant:{tenant_id}",
-            action="tenant_admin",
+            action=action,
             allow=allowed,
-            reason="tenant admin check",
+            reason=f"{action} check",
             source="openfga",
         )
         if not allowed:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant admin access required")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
     def _audit(self, request: AuthorizationRequest, decision: AuthorizationDecision) -> None:
         self.audit.record(

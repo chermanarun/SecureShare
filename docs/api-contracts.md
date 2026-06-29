@@ -25,7 +25,7 @@ Returns:
 
 `POST /documents`
 
-Creates a document owned by the caller and writes an OpenFGA owner tuple.
+Creates a document owned by the caller only if the caller still has a live tenant-membership relationship in OpenFGA, then writes the owner and tenant-parent tuples.
 
 `GET /documents/{document_id}`
 
@@ -58,6 +58,7 @@ Requires `can_share`.
 `POST /documents/{document_id}/shares/delegated-link`
 
 Requires issuer `can_read`.
+Delegated tokens are always IP-bound: if `ip_address` is omitted, the API binds the caller's current client IP.
 
 ```json
 {
@@ -80,3 +81,8 @@ x-delegation-token: <macaroon>
 
 Returns recent tenant-scoped authorization decisions.
 
+## Relationship Inspection
+
+`GET /documents/{document_id}/relationships`
+
+Requires tenant-admin access and only returns relationships for documents inside the caller's tenant.

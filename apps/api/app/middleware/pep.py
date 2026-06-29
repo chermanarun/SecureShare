@@ -7,9 +7,8 @@ from starlette.responses import Response
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
-        request_id = request.headers.get("x-request-id", str(uuid4()))
+        request_id = str(uuid4())
         request.state.request_id = request_id
         response = await call_next(request)
         response.headers["x-request-id"] = request_id
         return response
-

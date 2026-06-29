@@ -22,3 +22,9 @@ def verify_password(password: str, encoded: str) -> bool:
     except (ValueError, TypeError):
         return False
 
+
+_DUMMY_HASH = "pbkdf2_sha256$390000$AAAAAAAAAAAAAAAAAAAAAA==$8pAxa8L4K9TXLrJQWorQkVOnvqk0G5fvlyxP+6A6j48="
+
+
+def verify_password_or_dummy(password: str, encoded: str | None) -> bool:
+    return verify_password(password, encoded or _DUMMY_HASH)

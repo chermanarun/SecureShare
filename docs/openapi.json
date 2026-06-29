@@ -114,7 +114,7 @@
           "documents"
         ],
         "summary": "Create a document",
-        "description": "Creates a document in the caller's tenant, stores application data in PostgreSQL, and writes OpenFGA owner and tenant-parent relationships. Requires authentication.",
+        "description": "Creates a document in the caller's tenant only after the shared authorization service verifies live tenant membership, then stores application data in PostgreSQL and writes OpenFGA owner and tenant-parent relationships.",
         "operationId": "create_document_documents_post",
         "requestBody": {
           "content": {
@@ -139,6 +139,9 @@
           },
           "401": {
             "description": "Missing or invalid JWT."
+          },
+          "403": {
+            "description": "Caller is not an active member of the tenant."
           },
           "422": {
             "description": "Validation Error",
@@ -286,7 +289,7 @@
           "documents"
         ],
         "summary": "Inspect document relationships",
-        "description": "Returns OpenFGA relationships for a document. This demo admin endpoint requires `can_share`, which is currently granted to document owners.",
+        "description": "Returns OpenFGA relationships for a document. This admin endpoint requires tenant-admin access and only reveals relationships for documents inside the caller's tenant.",
         "operationId": "inspect_relationships_documents__document_id__relationships_get",
         "security": [
           {
@@ -452,7 +455,7 @@
           "shares"
         ],
         "summary": "Create a delegated read link",
-        "description": "Issues a Macaroon-style delegated read token with caveats for action, document, tenant, issuer, expiry, and optional IP address. The issuer must currently have `can_read`.",
+        "description": "Issues a Macaroon-style delegated read token with caveats for action, document, tenant, issuer, expiry, and caller IP address. The issuer must currently have `can_read`.",
         "operationId": "create_delegated_link_documents__document_id__shares_delegated_link_post",
         "security": [
           {
@@ -490,6 +493,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Caller IP could not be bound into the delegated token."
           },
           "401": {
             "description": "Missing or invalid JWT."

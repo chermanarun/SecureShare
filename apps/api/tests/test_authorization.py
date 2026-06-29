@@ -1,13 +1,16 @@
 from datetime import UTC, datetime, timedelta
 
+import hashlib
 import httpx
 import jwt
 from fastapi.testclient import TestClient
 
 from app.auth.jwt import ALGORITHM, create_access_token
+from app.authz.repair import AuthzRepairService
 from app.authz.models import Role
 from app.config import DEFAULT_JWT_SECRET, DEFAULT_MACAROON_ROOT_KEY, Settings, get_settings
 from app.models.audit import AuditLog
+from app.models.authz_repair_job import AuthzRepairJob
 from app.models.document import Document
 
 from .conftest import ALICE, BOB, DOC_A, DOC_B, EVE, TENANT_A, auth_header
@@ -106,6 +109,7 @@ def test_delegated_token_allows_read(client: TestClient, tokens: dict[str, str])
         headers=auth_header(tokens["alice"]),
     )
     assert issued.status_code == 200
+    assert any(caveat == "ip = testclient" for caveat in issued.json()["caveats"])
     response = client.get(f"/delegated/documents/{DOC_A}", headers={"x-delegation-token": issued.json()["token"]})
     assert response.status_code == 200
 
@@ -152,13 +156,19 @@ def test_delegated_token_revocation_uses_live_relationships(
 
 
 def test_login_rate_limit_and_failed_logins_are_audited(client: TestClient, db_session) -> None:
+    principal_resource = f"auth:login:principal:{hashlib.sha256('alice@example.com'.encode('utf-8')).hexdigest()[:24]}"
+    ip_resource = f"auth:login:ip:{hashlib.sha256('testclient'.encode('utf-8')).hexdigest()[:24]}"
     for _ in range(5):
         response = client.post("/auth/login", json={"email": "alice@example.com", "password": "wrong-password"})
         assert response.status_code == 401
     limited = client.post("/auth/login", json={"email": "alice@example.com", "password": "wrong-password"})
     assert limited.status_code == 429
-    rows = db_session.query(AuditLog).filter(AuditLog.resource == "auth:login:alice@example.com").all()
-    assert len(rows) == 6
+    principal_rows = db_session.query(AuditLog).filter(AuditLog.resource == principal_resource).all()
+    ip_rows = db_session.query(AuditLog).filter(AuditLog.resource == ip_resource).all()
+    assert len(principal_rows) == 6
+    assert len(ip_rows) == 5
+    assert all("alice@example.com" not in row.resource for row in principal_rows + ip_rows)
+    rows = principal_rows
     assert rows[-1].reason == "rate limit exceeded"
 
 
@@ -168,6 +178,16 @@ def test_audit_logs_require_tenant_admin(client: TestClient, tokens: dict[str, s
     assert response.json()["detail"] == "Tenant admin access required"
 
 
+def test_document_relationship_inspection_requires_tenant_admin(client: TestClient, tokens: dict[str, str]) -> None:
+    denied = client.get(f"/documents/{DOC_A}/relationships", headers=auth_header(tokens["bob"]))
+    assert denied.status_code == 403
+    assert denied.json()["detail"] == "Tenant admin access required"
+
+    allowed = client.get(f"/documents/{DOC_A}/relationships", headers=auth_header(tokens["alice"]))
+    assert allowed.status_code == 200
+    assert allowed.json()["document_id"] == DOC_A
+
+
 def test_tenant_admin_can_read_audit_logs(client: TestClient, tokens: dict[str, str]) -> None:
     client.get(f"/documents/{DOC_A}", headers=auth_header(tokens["alice"]))
     response = client.get("/audit", headers=auth_header(tokens["alice"]))
@@ -175,6 +195,18 @@ def test_tenant_admin_can_read_audit_logs(client: TestClient, tokens: dict[str, 
     rows = response.json()
     assert rows
     assert all(row["tenant_id"] == TENANT_A for row in rows)
+
+
+def test_document_create_requires_live_tenant_membership(client: TestClient, relationship_client) -> None:
+    relationship_client.delete(user=f"user:{BOB}", relation="member", object_=f"tenant:{TENANT_A}")
+    token = client.post("/auth/login", json={"email": "bob@example.com", "password": "password123"}).json()["access_token"]
+    response = client.post(
+        "/documents",
+        json={"title": "No membership", "body": "blocked"},
+        headers=auth_header(token),
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Tenant membership required"
 
 
 def test_readiness_does_not_leak_raw_backend_errors(client: TestClient, monkeypatch) -> None:
@@ -189,6 +221,13 @@ def test_readiness_does_not_leak_raw_backend_errors(client: TestClient, monkeypa
     payload = response.json()
     assert payload["components"]["openfga"]["detail"] == "authorization backend unavailable"
     assert "secret-details" not in str(payload)
+
+
+def test_request_id_is_server_generated(client: TestClient) -> None:
+    response = client.get("/healthz", headers={"x-request-id": "attacker-controlled-id"})
+    assert response.status_code == 200
+    assert response.headers["x-request-id"] != "attacker-controlled-id"
+    assert len(response.headers["x-request-id"]) >= 32
 
 
 def test_settings_reject_legacy_public_signing_keys() -> None:
@@ -213,6 +252,19 @@ def test_dev_settings_generate_ephemeral_signing_keys() -> None:
     assert len(settings.macaroon_root_key) >= 32
 
 
+def test_non_dev_settings_require_openfga_api_token() -> None:
+    try:
+        Settings(
+            environment="prod",
+            jwt_secret="strong-jwt-secret-value",
+            macaroon_root_key="strong-macaroon-root-key-value",
+            openfga_api_token=None,
+        )
+    except Exception:
+        return
+    raise AssertionError("Expected non-dev settings validation to fail without an OpenFGA API token")
+
+
 def test_document_create_rolls_back_if_openfga_write_fails(client: TestClient, db_session, relationship_client) -> None:
     original_write = relationship_client.write
 
@@ -233,6 +285,60 @@ def test_document_create_rolls_back_if_openfga_write_fails(client: TestClient, d
     assert response.status_code == 503
     assert response.json()["detail"] == "Authorization backend unavailable during document creation"
     assert db_session.query(Document).filter(Document.title == "Should fail").count() == 0
+
+
+def test_document_create_enqueues_repair_job_if_cleanup_fails(client: TestClient, db_session, relationship_client) -> None:
+    original_write = relationship_client.write
+    original_delete = relationship_client.delete
+
+    def failing_write(*, user: str, relation: str, object_: str) -> None:
+        original_write(user=user, relation=relation, object_=object_)
+        if relation == "parent":
+            request = httpx.Request("POST", "http://openfga.test/stores/dev-store/write")
+            response = httpx.Response(status_code=503, request=request)
+            raise httpx.HTTPStatusError("openfga unavailable", request=request, response=response)
+
+    def failing_delete(*, user: str, relation: str, object_: str) -> None:
+        if relation == Role.OWNER.value:
+            raise RuntimeError("simulated cleanup failure")
+        original_delete(user=user, relation=relation, object_=object_)
+
+    relationship_client.write = failing_write
+    relationship_client.delete = failing_delete
+    token = client.post("/auth/login", json={"email": "alice@example.com", "password": "password123"}).json()["access_token"]
+    response = client.post(
+        "/documents",
+        json={"title": "Repair me", "body": "queue cleanup"},
+        headers=auth_header(token),
+    )
+    assert response.status_code == 503
+    jobs = db_session.query(AuthzRepairJob).all()
+    assert len(jobs) == 1
+    assert jobs[0].status == "pending"
+    assert jobs[0].operation == "delete_relationship"
+    assert jobs[0].relation == Role.OWNER.value
+
+
+def test_authz_repair_jobs_can_be_processed(db_session, relationship_client) -> None:
+    job = AuthzRepairJob(
+        status="pending",
+        operation="delete_relationship",
+        user=f"user:{ALICE}",
+        relation=Role.OWNER.value,
+        object=f"document:{DOC_A}",
+        attempts=0,
+        last_error="queued for retry",
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    processed = AuthzRepairService(db_session).process_pending_jobs(relationships=relationship_client)
+    db_session.refresh(job)
+
+    assert processed == 1
+    assert job.status == "completed"
+    assert job.attempts == 1
+    assert job.last_error is None
 
 
 def test_every_authorization_decision_is_audited(client: TestClient, tokens: dict[str, str], db_session) -> None:

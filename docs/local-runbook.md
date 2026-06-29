@@ -38,6 +38,8 @@ The API no longer accepts the published demo defaults. In `dev`, omitted secrets
 docker compose up -d postgres openfga
 ```
 
+On first boot, PostgreSQL creates a dedicated `openfga` database and the `openfga-migrate` service prepares the OpenFGA schema before the API starts talking to the PDP.
+
 Check containers:
 
 ```bash
@@ -162,6 +164,8 @@ curl -i http://localhost:8000/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa \
   -H "authorization: Bearer $BOB_TOKEN"
 ```
 
+Delegated links are automatically bound to the issuing caller IP unless you provide an explicit `ip_address` caveat.
+
 Inspect audit logs as tenant admin:
 
 ```bash
@@ -183,4 +187,12 @@ After changing routes or schemas:
 
 ```bash
 PYTHONPATH=apps/api uv run python scripts/export_openapi.py
+```
+
+## 12. Process Authorization Repair Jobs
+
+If OpenFGA cleanup fails during a rolled-back write, SecureShare queues a repair job in PostgreSQL:
+
+```bash
+PYTHONPATH=apps/api uv run python scripts/process_authz_repair_jobs.py
 ```

@@ -6,10 +6,12 @@ This guide is for developers changing SecureShare code. It explains the applicat
 
 - JWTs prove identity only. Do not put document roles, permissions, group membership, or OpenFGA-derived state into JWT claims.
 - The app must fail closed if legacy public signing keys are configured. Dev-only in-process runs may generate ephemeral secrets, but Compose and non-dev environments must provide explicit keys.
+- Non-dev environments must also provide an OpenFGA API token. The PDP should never be optional once the app is deployed beyond local dev.
 - Business services do not authorize. They may create, fetch, or mutate data only after a router or dependency has called `AuthorizationService`.
 - All document authorization decisions go through `AuthorizationService`.
 - Every allow and deny from `AuthorizationService` must be auditable.
 - Reading tenant audit logs requires a tenant-admin relationship in OpenFGA.
+- Login audit records must not store raw email addresses in the `resource` field.
 - Revocation must be live. A stale JWT must not preserve access after an OpenFGA tuple is removed.
 - Cross-tenant checks happen before returning resource data.
 - Delegated tokens are attenuated read tokens, not a second authorization system.
@@ -42,6 +44,8 @@ This guide is for developers changing SecureShare code. It explains the applicat
 4. `AuthorizationService.require()` calls `authorize()`.
 5. `authorize()` loads the resource, checks tenant boundary, asks OpenFGA, and writes an audit row.
 6. The router calls a business service only after authorization succeeds.
+
+`request.state.request_id` is server-generated. Do not trust client-supplied correlation IDs as authoritative audit identifiers.
 
 ```mermaid
 sequenceDiagram
@@ -91,7 +95,7 @@ The service returns `AuthorizationDecision` for internal use and `require()` rai
 Operational notes:
 
 - OpenFGA is the source of object authorization and tenant-admin checks.
-- Routers may use helper methods such as `require_tenant_admin(...)`, but business services must stay free of embedded authorization logic.
+- Routers may use helper methods such as `require_tenant_member(...)` and `require_tenant_admin(...)`, but business services must stay free of embedded authorization logic.
 - Audit log reads are sensitive because they reveal deny reasons and resource access patterns. Keep them behind tenant-admin relationships.
 
 When adding a protected document endpoint:
@@ -150,7 +154,7 @@ When changing OpenFGA relationships:
 - `tenant_id = <tenant_id>`
 - `issuer_user_id = <user_id>`
 - `expires_before = <unix_timestamp>`
-- optional `ip = <ip_address>`
+- `ip = <caller_ip_or_explicit_override>`
 
 Delegated read flow:
 
@@ -160,6 +164,16 @@ Delegated read flow:
 4. Return the document only if the issuer still has access.
 
 This means revoking the issuer's OpenFGA relationship invalidates delegated access immediately.
+
+## Authorization Repair Jobs
+
+Dual-write recovery is explicit in v1:
+
+- if document creation fails after one or more OpenFGA writes, SecureShare attempts immediate compensating deletes
+- if a compensating delete fails, the app persists an `authz_repair_jobs` row in PostgreSQL
+- `scripts/process_authz_repair_jobs.py` retries pending repairs against OpenFGA
+
+Do not remove this queue without replacing it with an equally durable reconciliation path.
 
 ## Audit Logging
 
@@ -180,6 +194,7 @@ Required fields:
 If you introduce a new authorization path, route it through `AuthorizationService` or add equivalent audit coverage before merging.
 
 Login throttling also writes deny decisions into `audit_logs` and is intentionally backed by the database so it survives process restarts and horizontal scaling better than an in-memory limiter.
+The limiter should stay privacy-conscious: store hashed login identifiers in audit resources and include an IP-based dimension so a single account name cannot be used as an easy lockout target.
 
 ## Adding A New Protected Endpoint
 

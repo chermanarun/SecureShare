@@ -54,7 +54,7 @@ Risk: temporary share links are replayed, used after expiry, used from the wrong
 
 Controls:
 
-- Macaroon caveats bind action, document, tenant, issuer, expiry, and optional IP.
+- Macaroon caveats bind action, document, tenant, issuer, expiry, and caller IP.
 - Delegated endpoint supports read only.
 - Delegated reads perform live OpenFGA checks for the issuing user.
 - Tests cover expiry, wrong IP, and revocation.
@@ -68,10 +68,11 @@ Controls:
 - `AuthorizationService` records every allow and deny.
 - Audit rows include request ID, user, tenant, resource, action, decision, reason, and decision source.
 - Audit log reads require a tenant-admin relationship in OpenFGA.
+- Login-attempt audit resources use hashed identifiers instead of raw email addresses.
 
 ## Residual Risks
 
 - The local JWT issuer is not suitable for production identity federation.
-- Demo OpenFGA still uses an in-memory datastore in local Compose; production should move the relationship store to a durable backend and manage retention separately from the API database.
-- Document relationship inspection is still owner-gated rather than tenant-admin-gated.
 - Audit retention, tamper resistance, and export to a SIEM are left as production extensions.
+- Authorization repair jobs need a production scheduler or worker so queued cleanup tasks are drained promptly after an OpenFGA outage.
+- Production should still add backup, restore, and monitoring controls around the OpenFGA datastore.

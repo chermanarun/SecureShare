@@ -21,6 +21,7 @@ class DelegationService:
         expires_in_seconds: int,
         request_id: str,
         authz: AuthorizationService,
+        request_ip: str | None,
         ip_address: str | None = None,
     ) -> tuple[str, list[str]]:
         authz.require(
@@ -41,8 +42,10 @@ class DelegationService:
             f"issuer_user_id = {issuer_user_id}",
             f"expires_before = {int(expires_at.timestamp())}",
         ]
-        if ip_address:
-            caveats.append(f"ip = {ip_address}")
+        bound_ip = ip_address or request_ip
+        if not bound_ip:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unable to bind delegated token to caller IP")
+        caveats.append(f"ip = {bound_ip}")
         macaroon = Macaroon(location=self.settings.macaroon_location, identifier=document_id, key=self.settings.macaroon_root_key)
         for caveat in caveats:
             macaroon.add_first_party_caveat(caveat)
@@ -92,4 +95,3 @@ class DelegationService:
             )
         )
         return issuer_user_id
-

@@ -2,7 +2,7 @@ from functools import lru_cache
 import secrets
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "dev-only-change-me-minimum-32-characters"
@@ -37,8 +37,11 @@ class Settings(BaseSettings):
                 self.jwt_secret = secrets.token_urlsafe(48)
             if not self.macaroon_root_key:
                 self.macaroon_root_key = secrets.token_urlsafe(48)
-        elif not self.jwt_secret or not self.macaroon_root_key:
-            raise ValueError("Refusing to start non-dev environment without explicit signing keys.")
+        else:
+            if not self.jwt_secret or not self.macaroon_root_key:
+                raise ValueError("Refusing to start non-dev environment without explicit signing keys.")
+            if not self.openfga_api_token:
+                raise ValueError("Refusing to start non-dev environment without an OpenFGA API token.")
         return self
 
 
