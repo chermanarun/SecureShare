@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+import logging
 
 from fastapi import HTTPException, status
 from pymacaroons import Macaroon, Verifier
@@ -9,6 +10,8 @@ from app.config import Settings, get_settings
 
 
 class DelegationService:
+    logger = logging.getLogger(__name__)
+
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
 
@@ -42,9 +45,11 @@ class DelegationService:
             f"issuer_user_id = {issuer_user_id}",
             f"expires_before = {int(expires_at.timestamp())}",
         ]
-        bound_ip = ip_address or request_ip
-        if not bound_ip:
+        if not request_ip:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unable to bind delegated token to caller IP")
+        if ip_address and ip_address != request_ip:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Delegated token IP caveat must match caller IP")
+        bound_ip = request_ip
         caveats.append(f"ip = {bound_ip}")
         macaroon = Macaroon(location=self.settings.macaroon_location, identifier=document_id, key=self.settings.macaroon_root_key)
         for caveat in caveats:
@@ -81,6 +86,7 @@ class DelegationService:
                 verifier.satisfy_exact(f"ip = {caveat_map['ip']}")
             verifier.verify(macaroon, self.settings.macaroon_root_key)
         except Exception as exc:
+            self.logger.warning("delegated token rejected", extra={"reason": exc.__class__.__name__, "document_id": document_id})
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid delegated token") from exc
 
         authz.require(

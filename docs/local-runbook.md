@@ -164,7 +164,14 @@ curl -i http://localhost:8000/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa \
   -H "authorization: Bearer $BOB_TOKEN"
 ```
 
-Delegated links are automatically bound to the issuing caller IP unless you provide an explicit `ip_address` caveat.
+Delegated links are always bound to the issuing caller IP. If you provide `ip_address`, it must match the observed caller IP.
+
+Revoke the current JWT family:
+
+```bash
+curl -i -X POST http://localhost:8000/auth/logout \
+  -H "authorization: Bearer $ALICE_TOKEN"
+```
 
 Inspect audit logs as tenant admin:
 

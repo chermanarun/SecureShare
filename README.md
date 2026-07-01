@@ -137,7 +137,8 @@ curl -X POST http://localhost:8000/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa
   -d '{"expires_in_seconds":300}'
 ```
 
-Delegated links are automatically bound to the caller IP unless an explicit `ip_address` caveat is provided.
+Delegated links are always bound to the observed caller IP.
+If `ip_address` is provided, it must match that observed caller IP or issuance is rejected.
 
 Read through delegated access:
 
@@ -150,6 +151,13 @@ Inspect audit logs as tenant admin:
 
 ```bash
 curl http://localhost:8000/audit -H "authorization: Bearer $ALICE_TOKEN"
+```
+
+Revoke Alice's current JWT family:
+
+```bash
+curl -X POST http://localhost:8000/auth/logout \
+  -H "authorization: Bearer $ALICE_TOKEN"
 ```
 
 ## Tests

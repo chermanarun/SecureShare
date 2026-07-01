@@ -21,6 +21,10 @@ Returns:
 }
 ```
 
+`POST /auth/logout`
+
+Requires a bearer token. Increments the stored token version for the caller so previously issued JWTs are rejected on the next request.
+
 ## Documents
 
 `POST /documents`
@@ -58,7 +62,7 @@ Requires `can_share`.
 `POST /documents/{document_id}/shares/delegated-link`
 
 Requires issuer `can_read`.
-Delegated tokens are always IP-bound: if `ip_address` is omitted, the API binds the caller's current client IP.
+Delegated tokens are always bound to the server-observed caller IP. If `ip_address` is provided, it must match the observed client IP or the request is rejected.
 
 ```json
 {

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI
 
 from app.middleware.pep import RequestContextMiddleware
@@ -50,6 +52,7 @@ TAGS_METADATA = [
 
 
 def create_app() -> FastAPI:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     app = FastAPI(
         title="SecureShare Authorization Reference API",
         summary="Multi-tenant document sharing with JWT, OpenFGA, Macaroons, PostgreSQL, and audit logging.",

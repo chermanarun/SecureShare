@@ -39,5 +39,6 @@ class IdentityClaims(BaseModel):
     sub: str
     tenant_id: str
     email: EmailStr
+    token_version: int
     iss: str
     aud: str

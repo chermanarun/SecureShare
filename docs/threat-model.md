@@ -46,6 +46,7 @@ Controls:
 - JWT decoding pins `HS256`.
 - Required claims are enforced.
 - Issuer and audience are verified.
+- Stored `token_version` enables immediate family-wide bearer-token revocation through logout or future account-recovery flows.
 - Tests cover malformed and `alg=none` tokens.
 
 ### Delegated Token Abuse
@@ -57,6 +58,7 @@ Controls:
 - Macaroon caveats bind action, document, tenant, issuer, expiry, and caller IP.
 - Delegated endpoint supports read only.
 - Delegated reads perform live OpenFGA checks for the issuing user.
+- Delegated-link issuance rejects mismatched client-supplied IP overrides.
 - Tests cover expiry, wrong IP, and revocation.
 
 ### Audit Gaps

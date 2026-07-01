@@ -7,11 +7,13 @@ This guide is for developers changing SecureShare code. It explains the applicat
 - JWTs prove identity only. Do not put document roles, permissions, group membership, or OpenFGA-derived state into JWT claims.
 - The app must fail closed if legacy public signing keys are configured. Dev-only in-process runs may generate ephemeral secrets, but Compose and non-dev environments must provide explicit keys.
 - Non-dev environments must also provide an OpenFGA API token. The PDP should never be optional once the app is deployed beyond local dev.
+- JWTs are revocable through the persisted `token_version` on `User`. Any revocation workflow must increment that version.
 - Business services do not authorize. They may create, fetch, or mutate data only after a router or dependency has called `AuthorizationService`.
 - All document authorization decisions go through `AuthorizationService`.
 - Every allow and deny from `AuthorizationService` must be auditable.
 - Reading tenant audit logs requires a tenant-admin relationship in OpenFGA.
 - Login audit records must not store raw email addresses in the `resource` field.
+- Login throttling must not let an attacker lock out a principal globally from unrelated IPs.
 - Revocation must be live. A stale JWT must not preserve access after an OpenFGA tuple is removed.
 - Cross-tenant checks happen before returning resource data.
 - Delegated tokens are attenuated read tokens, not a second authorization system.
@@ -155,6 +157,7 @@ When changing OpenFGA relationships:
 - `issuer_user_id = <user_id>`
 - `expires_before = <unix_timestamp>`
 - `ip = <caller_ip_or_explicit_override>`
+- `ip = <server_observed_caller_ip>`
 
 Delegated read flow:
 
@@ -164,6 +167,7 @@ Delegated read flow:
 4. Return the document only if the issuer still has access.
 
 This means revoking the issuer's OpenFGA relationship invalidates delegated access immediately.
+The caller cannot widen IP scope by supplying an arbitrary `ip_address`; any supplied value must match the observed request IP.
 
 ## Authorization Repair Jobs
 

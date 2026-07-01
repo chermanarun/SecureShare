@@ -27,9 +27,13 @@ def get_current_principal(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
     claims = decode_access_token(credentials.credentials)
     user = db.get(User, claims.sub)
-    if user is None or user.tenant_id != claims.tenant_id or user.email != claims.email:
+    if (
+        user is None
+        or user.tenant_id != claims.tenant_id
+        or user.email != claims.email
+        or user.token_version != claims.token_version
+    ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token subject")
     principal = Principal(user_id=user.id, tenant_id=user.tenant_id, email=user.email)
     request.state.principal = principal
     return principal
-

@@ -1,9 +1,13 @@
+import logging
+
 from sqlalchemy.orm import Session
 
 from app.models.audit import AuditLog
 
 
 class AuditService:
+    logger = logging.getLogger(__name__)
+
     def __init__(self, db: Session):
         self.db = db
 
@@ -31,5 +35,14 @@ class AuditService:
         )
         self.db.add(entry)
         self.db.commit()
+        self.logger.info(
+            "audit decision recorded",
+            extra={
+                "request_id": request_id,
+                "resource": resource,
+                "action": action,
+                "decision": entry.decision,
+                "source": source,
+            },
+        )
         return entry
-

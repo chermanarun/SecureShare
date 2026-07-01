@@ -89,6 +89,7 @@ def test_weak_jwt_algorithm_is_rejected(client: TestClient) -> None:
             "sub": ALICE,
             "tenant_id": TENANT_A,
             "email": "alice@example.com",
+            "token_version": 0,
             "iss": settings.jwt_issuer,
             "aud": settings.jwt_audience,
             "iat": int(now.timestamp()),
@@ -134,9 +135,17 @@ def test_wrong_ip_delegated_token_denied(client: TestClient, tokens: dict[str, s
         json={"expires_in_seconds": 60, "ip_address": "203.0.113.10"},
         headers=auth_header(tokens["alice"]),
     )
-    assert issued.status_code == 200
-    response = client.get(f"/delegated/documents/{DOC_A}", headers={"x-delegation-token": issued.json()["token"]})
-    assert response.status_code == 403
+    assert issued.status_code == 400
+
+
+def test_delegated_token_rejects_client_supplied_ip_override(client: TestClient, tokens: dict[str, str]) -> None:
+    issued = client.post(
+        f"/documents/{DOC_A}/shares/delegated-link",
+        json={"expires_in_seconds": 60, "ip_address": "203.0.113.10"},
+        headers=auth_header(tokens["alice"]),
+    )
+    assert issued.status_code == 400
+    assert issued.json()["detail"] == "Delegated token IP caveat must match caller IP"
 
 
 def test_delegated_token_revocation_uses_live_relationships(
@@ -157,6 +166,7 @@ def test_delegated_token_revocation_uses_live_relationships(
 
 def test_login_rate_limit_and_failed_logins_are_audited(client: TestClient, db_session) -> None:
     principal_resource = f"auth:login:principal:{hashlib.sha256('alice@example.com'.encode('utf-8')).hexdigest()[:24]}"
+    principal_ip_resource = f"auth:login:principal_ip:{hashlib.sha256('alice@example.com|testclient'.encode('utf-8')).hexdigest()[:24]}"
     ip_resource = f"auth:login:ip:{hashlib.sha256('testclient'.encode('utf-8')).hexdigest()[:24]}"
     for _ in range(5):
         response = client.post("/auth/login", json={"email": "alice@example.com", "password": "wrong-password"})
@@ -164,12 +174,33 @@ def test_login_rate_limit_and_failed_logins_are_audited(client: TestClient, db_s
     limited = client.post("/auth/login", json={"email": "alice@example.com", "password": "wrong-password"})
     assert limited.status_code == 429
     principal_rows = db_session.query(AuditLog).filter(AuditLog.resource == principal_resource).all()
+    principal_ip_rows = db_session.query(AuditLog).filter(AuditLog.resource == principal_ip_resource).all()
     ip_rows = db_session.query(AuditLog).filter(AuditLog.resource == ip_resource).all()
-    assert len(principal_rows) == 6
+    assert len(principal_rows) == 5
+    assert len(principal_ip_rows) == 6
     assert len(ip_rows) == 5
-    assert all("alice@example.com" not in row.resource for row in principal_rows + ip_rows)
-    rows = principal_rows
+    assert all("alice@example.com" not in row.resource for row in principal_rows + principal_ip_rows + ip_rows)
+    rows = principal_ip_rows
     assert rows[-1].reason == "rate limit exceeded"
+
+
+def test_successful_login_resets_principal_ip_lockout_counter(client: TestClient, db_session) -> None:
+    principal_ip_resource = f"auth:login:principal_ip:{hashlib.sha256('alice@example.com|testclient'.encode('utf-8')).hexdigest()[:24]}"
+    for _ in range(4):
+        response = client.post("/auth/login", json={"email": "alice@example.com", "password": "wrong-password"})
+        assert response.status_code == 401
+    success = client.post("/auth/login", json={"email": "alice@example.com", "password": "password123"})
+    assert success.status_code == 200
+    for _ in range(5):
+        response = client.post("/auth/login", json={"email": "alice@example.com", "password": "wrong-password"})
+        assert response.status_code == 401
+    limited = client.post("/auth/login", json={"email": "alice@example.com", "password": "wrong-password"})
+    assert limited.status_code == 429
+    allow_rows = db_session.query(AuditLog).filter(
+        AuditLog.resource == principal_ip_resource,
+        AuditLog.decision == "allow",
+    ).all()
+    assert allow_rows
 
 
 def test_audit_logs_require_tenant_admin(client: TestClient, tokens: dict[str, str]) -> None:
@@ -263,6 +294,14 @@ def test_non_dev_settings_require_openfga_api_token() -> None:
     except Exception:
         return
     raise AssertionError("Expected non-dev settings validation to fail without an OpenFGA API token")
+
+
+def test_logout_revokes_current_token_family(client: TestClient) -> None:
+    token = client.post("/auth/login", json={"email": "alice@example.com", "password": "password123"}).json()["access_token"]
+    logout = client.post("/auth/logout", headers=auth_header(token))
+    assert logout.status_code == 204
+    after = client.get(f"/documents/{DOC_A}", headers=auth_header(token))
+    assert after.status_code == 401
 
 
 def test_document_create_rolls_back_if_openfga_write_fails(client: TestClient, db_session, relationship_client) -> None:

@@ -108,6 +108,29 @@
         }
       }
     },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Revoke current bearer token family",
+        "description": "Invalidates the caller's currently issued JWT family by incrementing the stored token version. Subsequent use of previously issued bearer tokens is rejected.",
+        "operationId": "logout_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Current token family revoked."
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/documents": {
       "post": {
         "tags": [
