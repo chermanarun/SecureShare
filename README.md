@@ -22,10 +22,12 @@ SecureShare is a small production-style reference app for secure multi-tenant do
 - [Architecture](docs/architecture.md)
 - [Developer guide](docs/developer-guide.md)
 - [Local runbook](docs/local-runbook.md)
+- [Release criteria](docs/release-criteria.md)
 - [Threat model](docs/threat-model.md)
 - [Database-layer authorization](docs/database-authorization.md)
 - [API contracts](docs/api-contracts.md)
 - [Attack scenarios](docs/attack-scenarios.md)
+- [Security policy](SECURITY.md)
 
 ## Local Run
 
@@ -139,6 +141,7 @@ curl -X POST http://localhost:8000/documents/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa
 
 Delegated links are always bound to the observed caller IP.
 If `ip_address` is provided, it must match that observed caller IP or issuance is rejected.
+Issuer logout also revokes previously issued delegated links because the token now carries the issuer token version.
 
 Read through delegated access:
 

@@ -1,0 +1,9 @@
+* @chermanarun
+
+/apps/api/app/auth/ @chermanarun
+/apps/api/app/authz/ @chermanarun
+/apps/api/app/routers/ @chermanarun
+/apps/api/app/services/ @chermanarun
+/migrations/ @chermanarun
+/infra/ @chermanarun
+/.github/workflows/ @chermanarun

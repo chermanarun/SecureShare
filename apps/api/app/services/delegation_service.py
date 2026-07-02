@@ -7,6 +7,7 @@ from pymacaroons import Macaroon, Verifier
 from app.authz.models import Action, AuthorizationRequest
 from app.authz.service import AuthorizationService
 from app.config import Settings, get_settings
+from app.models.user import User
 
 
 class DelegationService:
@@ -43,6 +44,7 @@ class DelegationService:
             f"document_id = {document_id}",
             f"tenant_id = {issuer_tenant_id}",
             f"issuer_user_id = {issuer_user_id}",
+            f"issuer_token_version = {authz.db.get(User, issuer_user_id).token_version}",
             f"expires_before = {int(expires_at.timestamp())}",
         ]
         if not request_ip:
@@ -61,22 +63,24 @@ class DelegationService:
         *,
         token: str,
         document_id: str,
-        tenant_id: str,
         request_id: str,
         authz: AuthorizationService,
         request_ip: str | None,
-    ) -> str:
+    ) -> tuple[str, str]:
         try:
             macaroon = Macaroon.deserialize(token)
             caveats = [c.caveat_id for c in macaroon.caveats]
             caveat_map = dict(c.split(" = ", 1) for c in caveats if " = " in c)
             expires = int(caveat_map["expires_before"])
             issuer_user_id = caveat_map["issuer_user_id"]
+            tenant_id = caveat_map["tenant_id"]
+            issuer_token_version = int(caveat_map["issuer_token_version"])
             verifier = Verifier()
             verifier.satisfy_exact(f"action = {Action.READ.value}")
             verifier.satisfy_exact(f"document_id = {document_id}")
             verifier.satisfy_exact(f"tenant_id = {tenant_id}")
             verifier.satisfy_exact(f"issuer_user_id = {issuer_user_id}")
+            verifier.satisfy_exact(f"issuer_token_version = {issuer_token_version}")
             verifier.satisfy_exact(f"expires_before = {expires}")
             if datetime.now(UTC).timestamp() >= expires:
                 raise ValueError("delegated token expired")
@@ -85,6 +89,9 @@ class DelegationService:
                     raise ValueError("delegated token IP caveat failed")
                 verifier.satisfy_exact(f"ip = {caveat_map['ip']}")
             verifier.verify(macaroon, self.settings.macaroon_root_key)
+            issuer = authz.db.get(User, issuer_user_id)
+            if issuer is None or issuer.tenant_id != tenant_id or issuer.token_version != issuer_token_version:
+                raise ValueError("delegated token issuer state invalid")
         except Exception as exc:
             self.logger.warning("delegated token rejected", extra={"reason": exc.__class__.__name__, "document_id": document_id})
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid delegated token") from exc
@@ -100,4 +107,4 @@ class DelegationService:
                 source="macaroon",
             )
         )
-        return issuer_user_id
+        return issuer_user_id, tenant_id

@@ -20,3 +20,6 @@ A delegated token whose `expires_before` caveat is in the past is denied.
 
 Alice issues a delegated token and then loses access to the document. The delegated token stops working because the delegated endpoint performs a live OpenFGA check for Alice.
 
+## Logged-Out Issuer Delegation
+
+Alice issues a delegated token and then logs out. The delegated token stops working because it carries the issuer token version and logout increments that version.

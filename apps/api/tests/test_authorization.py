@@ -164,6 +164,27 @@ def test_delegated_token_revocation_uses_live_relationships(
     assert response.status_code == 403
 
 
+def test_delegated_token_is_revoked_by_logout(client: TestClient, tokens: dict[str, str]) -> None:
+    issued = client.post(
+        f"/documents/{DOC_A}/shares/delegated-link",
+        json={"expires_in_seconds": 60},
+        headers=auth_header(tokens["alice"]),
+    )
+    assert issued.status_code == 200
+    logout = client.post("/auth/logout", headers=auth_header(tokens["alice"]))
+    assert logout.status_code == 204
+    response = client.get(f"/delegated/documents/{DOC_A}", headers={"x-delegation-token": issued.json()["token"]})
+    assert response.status_code == 403
+
+
+def test_delegated_endpoint_does_not_leak_document_existence(client: TestClient) -> None:
+    response = client.get(
+        "/delegated/documents/not-a-real-document",
+        headers={"x-delegation-token": "definitely-not-a-valid-macaroon"},
+    )
+    assert response.status_code == 403
+
+
 def test_login_rate_limit_and_failed_logins_are_audited(client: TestClient, db_session) -> None:
     principal_resource = f"auth:login:principal:{hashlib.sha256('alice@example.com'.encode('utf-8')).hexdigest()[:24]}"
     principal_ip_resource = f"auth:login:principal_ip:{hashlib.sha256('alice@example.com|testclient'.encode('utf-8')).hexdigest()[:24]}"

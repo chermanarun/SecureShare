@@ -79,6 +79,9 @@ Requires header:
 x-delegation-token: <macaroon>
 ```
 
+Delegated reads return `403` for invalid tokens before exposing whether the document exists.
+Delegated links are also invalidated when the issuing user's `token_version` changes through logout or future account-recovery flows.
+
 ## Audit
 
 `GET /audit`

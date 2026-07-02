@@ -32,15 +32,14 @@ def read_delegated_document(
     db: Session = Depends(get_db),
     authz: AuthorizationService = Depends(get_authorization_service),
 ) -> DocumentRead:
-    document = DocumentService(db).get_document(document_id=document_id)
-    if document is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     DelegationService().verify_read_token(
         token=token,
         document_id=document_id,
-        tenant_id=document.tenant_id,
         request_id=request.state.request_id,
         authz=authz,
         request_ip=request.client.host if request.client else None,
     )
+    document = DocumentService(db).get_document(document_id=document_id)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     return DocumentRead.model_validate(document)

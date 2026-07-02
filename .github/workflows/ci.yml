@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
   security-events: write
 
 env:
@@ -21,17 +20,20 @@ jobs:
   test:
     name: Test And Package
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Install UV
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           enable-cache: true
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -50,7 +52,7 @@ jobs:
           uv run pytest --junitxml="${ARTIFACT_DIR}/pytest.xml"
 
       - name: Generate CycloneDX SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@f8bdd1d8ac5e901a77a92f111440fdb1b593736b
         with:
           path: .
           format: cyclonedx-json
@@ -58,7 +60,7 @@ jobs:
           upload-artifact: false
 
       - name: Run source vulnerability scan
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
           scan-type: fs
           scan-ref: .
@@ -71,12 +73,12 @@ jobs:
 
       - name: Upload source scan to code scanning
         if: always() && github.event_name != 'pull_request'
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@d02a7766a1131f2a16daab6a31d328a0b2a47444
         with:
           sarif_file: ${{ env.ARTIFACT_DIR }}/trivy-source.sarif
 
       - name: Enforce source vulnerability policy
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
           scan-type: fs
           scan-ref: .
@@ -91,7 +93,7 @@ jobs:
         run: docker build -t secureshare-api:${GITHUB_SHA} -f apps/api/Dockerfile .
 
       - name: Run image vulnerability scan
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
           image-ref: secureshare-api:${{ github.sha }}
           vuln-type: os,library
@@ -104,12 +106,12 @@ jobs:
 
       - name: Upload image scan to code scanning
         if: always() && github.event_name != 'pull_request'
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@d02a7766a1131f2a16daab6a31d328a0b2a47444
         with:
           sarif_file: ${{ env.ARTIFACT_DIR }}/trivy-image.sarif
 
       - name: Enforce image vulnerability policy
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
           image-ref: secureshare-api:${{ github.sha }}
           vuln-type: os,library
@@ -125,12 +127,34 @@ jobs:
           git archive --format=tar.gz --output="${ARTIFACT_DIR}/secureshare-source-${GITHUB_SHA}.tar.gz" HEAD
           shasum -a 256 "${ARTIFACT_DIR}"/* > "${ARTIFACT_DIR}/SHA256SUMS"
 
+      - name: Upload CI artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: secureshare-ci-unsigned-${{ github.sha }}
+          path: dist/ci/
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    name: Sign Release Artifacts
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download CI artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: secureshare-ci-unsigned-${{ github.sha }}
+          path: ${{ env.ARTIFACT_DIR }}
+
       - name: Install Cosign
-        if: github.event_name != 'pull_request'
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62
 
       - name: Sign CI artifacts
-        if: github.event_name != 'pull_request'
         run: |
           for artifact in \
             "${ARTIFACT_DIR}/secureshare-source-${GITHUB_SHA}.tar.gz" \
@@ -144,9 +168,8 @@ jobs:
               "${artifact}"
           done
 
-      - name: Upload CI artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Upload signed CI artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: secureshare-ci-${{ github.sha }}
           path: dist/ci/
